@@ -1,7 +1,16 @@
+import os, sys
+from pathlib import Path
 import time
 import numpy as np
 from firedrake import *
+import matplotlib.pyplot as plt
 
+# Add the parent directory (project/utility) to Python's search path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+from utility.gaussian_random_fields import gaussian_random_field_2d
 
 def nodal_array_to_function(arr, function_space):
     """
@@ -168,37 +177,37 @@ def solve_darcy_equation(nx, ny, hierarchy_level, kappa, f, solver_parameters = 
 
 def test_darcy_equation():
     solver_parameters_cg = {
-    "ksp_type": "cg",               # Conjugate Gradient (optimal for SPD)
-    "pc_type": "mg",                # geometric multigrid
-    "pc_mg_cycle_type": "v",        # V-cycle (cheapest, usually sufficient)
-    "mg_levels_ksp_type": "chebyshev",  # Chebyshev smoothing (better than Richardson)
-    "mg_levels_ksp_max_it": 2,      # 2 smoothing iterations per level
-    "mg_levels_pc_type": "jacobi",  # Jacobi preconditioner for Chebyshev
-    "mg_coarse_ksp_type": "preonly",
-    "mg_coarse_pc_type": "lu",      # Direct solve on coarse grid
-    "ksp_rtol": 1e-8,               # relative tolerance
-    "ksp_atol": 1e-12,              # absolute tolerance
-    "ksp_max_it": 200,              # safeguard
-    "ksp_monitor": None,            # optional: print residual history
-    "ksp_converged_reason": None,   # optional: print convergence reason
+        "ksp_type": "cg",               # Conjugate Gradient (optimal for SPD)
+        "pc_type": "mg",                # geometric multigrid
+        "pc_mg_cycle_type": "v",        # V-cycle (cheapest, usually sufficient)
+        "mg_levels_ksp_type": "chebyshev",  # Chebyshev smoothing (better than Richardson)
+        "mg_levels_ksp_max_it": 2,      # 2 smoothing iterations per level
+        "mg_levels_pc_type": "jacobi",  # Jacobi preconditioner for Chebyshev
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "lu",      # Direct solve on coarse grid
+        "ksp_rtol": 1e-8,               # relative tolerance
+        "ksp_atol": 1e-12,              # absolute tolerance
+        "ksp_max_it": 200,              # safeguard
+        "ksp_monitor": None,            # optional: print residual history
+        "ksp_converged_reason": None,   # optional: print convergence reason
     }
     
-    
     solver_parameters_mg = {
-            "ksp_type": "richardson",
-            "ksp_max_it": 10,
-            "ksp_rtol": 1.0e-2,
-            "pc_type": "mg",
-            "pc_mg_type": "multiplicative",
-            "pc_mg_cycle_type": "v",
-            "mg_levels_ksp_type": "richardson",
-            "mg_levels_ksp_max_it": 1,
-            "mg_levels_pc_type": "jacobi",
-            "mg_coarse_ksp_type": "preonly",
-            "mg_coarse_pc_type": "lu",
-            "ksp_monitor": None,
-            "ksp_converged_reason": None,
-        }
+        "ksp_type": "richardson",
+        "ksp_max_it": 10,
+        "ksp_rtol": 1.0e-2,
+        "pc_type": "mg",
+        "pc_mg_type": "multiplicative",
+        "pc_mg_cycle_type": "v",
+        "mg_levels_ksp_type": "richardson",
+        "mg_levels_ksp_max_it": 1,
+        "mg_levels_pc_type": "jacobi",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "lu",
+        "ksp_monitor": None,
+        "ksp_converged_reason": None,
+    }
+    
     
     for (nx, ny, hierarchy_level) in [(256, 256, 4), (512, 512, 5)]:
     
@@ -214,9 +223,9 @@ def test_darcy_equation():
         # function space
         mesh = V.mesh()
         # coordinates
-        x, y = SpatialCoordinate(mesh)
+        x_expr, y_expr = SpatialCoordinate(mesh)
         # exact solution
-        u_exact_expr = sin(pi * x) * sin(2 * pi * y)
+        u_exact_expr = sin(pi * x_expr) * sin(2 * pi * y_expr)
         
         # interpolate exact solution for error computation
         u_exact = Function(V, name="u_exact").interpolate(u_exact_expr)
@@ -233,7 +242,85 @@ def test_darcy_equation():
         Rel_L2_err = np.linalg.norm(uh_data - u_exact_data)/np.linalg.norm(u_exact_data)
         print(f"Rel_L2_err  = {Rel_L2_err:.12e}")
         
+        
+        fig, axs = plt.subplots(1, 4, figsize=(16, 4))
+        im = axs[0].pcolormesh(x, y, kappa_data)
+        axs[0].set_title("kappa");axs[0].set_aspect('equal')
+        fig.colorbar(im, ax=axs[0])
+        im = axs[1].pcolormesh(x, y, f_data)
+        axs[1].set_title("f");axs[1].set_aspect('equal')
+        fig.colorbar(im, ax=axs[1])
+        im = axs[2].pcolormesh(x, y, uh_data)
+        axs[2].set_title("u (predicted)");axs[2].set_aspect('equal')
+        fig.colorbar(im, ax=axs[2])
+        im = axs[3].pcolormesh(x, y, u_exact_data)
+        axs[3].set_title("u (reference)");axs[3].set_aspect('equal')
+        fig.colorbar(im, ax=axs[3])
+        fig.savefig(f"Darcy_flow_{nx}_{ny}.png")
+        
+
+def generate_data():
+    
+    Path('../data/darcy').mkdir(parents=True, exist_ok=True)
+    
+    solver_parameters_mg = {
+        "ksp_type": "richardson",
+        "pc_type": "mg",
+        "pc_mg_type": "multiplicative",
+        "pc_mg_cycle_type": "v",
+        "mg_levels_ksp_type": "richardson",
+        "mg_levels_pc_type": "jacobi",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "lu",
+        "ksp_monitor": None,
+        "ksp_converged_reason": None,
+    }
+        
+        
+    ndata = 10000
+    nx = ny = 512
+    ngrid = nx + 1
+    L = 1.0
+    kappa_data = gaussian_random_field_2d(ndata, [ngrid, ngrid], [L, L], sigma=1.0, tau = 3.0, alpha = 2.0, bc_name = 'neumann', seed = 42)
+    positive_indices = kappa_data >= 0
+    kappa_data[positive_indices] = 10
+    kappa_data[~positive_indices] = 1
+
+    u_data = np.zeros((ndata, ngrid, ngrid))
+    f_data = np.ones((ngrid, ngrid))
+    for i in range(ndata):
+        uh, V = solve_darcy_equation(nx, ny, hierarchy_level=6, kappa = kappa_data[i,:,:], f = f_data, solver_parameters = solver_parameters_mg)
+        u_data[i,:,:] = function_to_nodal_array(uh, nx, ny)
+        
+        
+    np.save(f"../data/darcy/kappa_data.npy", kappa_data)
+    np.save(f"../data/darcy/u_data.npy", u_data)
+
+
+
+def visualize_data():
+
+    kappa_data = np.load("../data/darcy/kappa_data.npy")
+    u_data = np.load("../data/darcy/u_data.npy")
+    ndata, ngrid, _ = u_data.shape
+    f_data = np.ones((ngrid, ngrid))
+    x, y = np.meshgrid(np.linspace(0,1,ngrid), np.linspace(0,1,ngrid), indexing='xy')
+            
+    i = 1
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4))
+    im = axs[0].pcolormesh(x, y, kappa_data[i,:,:])
+    axs[0].set_title("kappa");axs[0].set_aspect('equal')
+    fig.colorbar(im, ax=axs[0])
+    im = axs[1].pcolormesh(x, y, f_data)
+    axs[1].set_title("f");axs[1].set_aspect('equal')
+    fig.colorbar(im, ax=axs[1])
+    im = axs[2].pcolormesh(x, y, u_data[i,:,:])
+    axs[2].set_title("u (predicted)");axs[2].set_aspect('equal')
+    fig.colorbar(im, ax=axs[2])
+    fig.savefig(f"Darcy_flow_{i}.png")
     
 # Example usage
 if __name__ == "__main__":
-    test_darcy_equation()
+    # test_darcy_equation()
+    generate_data()
+    visualize_data()
