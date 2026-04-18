@@ -261,7 +261,7 @@ def test_darcy_equation():
 
 def generate_data():
     
-    Path('../data/darcy').mkdir(parents=True, exist_ok=True)
+    Path('../../data/darcy').mkdir(parents=True, exist_ok=True)
     
     solver_parameters_mg = {
         "ksp_type": "richardson",
@@ -293,15 +293,15 @@ def generate_data():
         u_data[i,:,:] = function_to_nodal_array(uh, nx, ny)
         
         
-    np.save(f"../data/darcy/kappa_data.npy", kappa_data)
-    np.save(f"../data/darcy/u_data.npy", u_data)
+    np.save(f"../../data/darcy/kappa_data.npy", kappa_data)
+    np.save(f"../../data/darcy/u_data.npy", u_data)
 
 
 
 def visualize_data():
 
-    kappa_data = np.load("../data/darcy/kappa_data.npy")
-    u_data = np.load("../data/darcy/u_data.npy")
+    kappa_data = np.load("../../data/darcy/kappa_data.npy")
+    u_data = np.load("../../data/darcy/u_data.npy")
     ndata, ngrid, _ = u_data.shape
     f_data = np.ones((ngrid, ngrid))
     x, y = np.meshgrid(np.linspace(0,1,ngrid), np.linspace(0,1,ngrid), indexing='xy')
