@@ -1,83 +1,239 @@
+import time
+import numpy as np
 from firedrake import *
 
-# Example: permeability given on an nx x ny uniform grid, one value per cell
-nx,ny = 64, 64
-perm = np.ones((nx,ny))                     # shape (nx, ny)
-nx, ny = perm.shape
 
-# Choose a coarse mesh and number of refinements so the finest mesh matches (nx, ny)
-# Example: if nx = ny = 64, take 8 x 8 coarse mesh and 3 refinements
-mesh0 = UnitSquareMesh(nx // 2**3, ny // 2**3, quadrilateral=True)
-hierarchy = MeshHierarchy(mesh0, 3)
-mesh = hierarchy[-1]
+def nodal_array_to_function(arr, function_space):
+    """
+    Convert a nodal array (shape (ny+1, nx+1)) to a Firedrake CG1 Function.
 
-# Solution space
-V = FunctionSpace(mesh, "CG", 1)
+    Parameters
+    ----------
+    arr : np.ndarray
+        2D array of shape (ny+1, nx+1), where arr[j, i] corresponds to the grid point
+        (x = i/nx, y = j/ny). The mesh must have vertices exactly at these points.
+    mesh : firedrake.Mesh
+        Structured rectangular mesh (e.g., UnitSquareMesh(nx, ny)).
+    function_space : firedrake.FunctionSpace, optional
+        If provided, must be a CG1 space on the same mesh. Otherwise created automatically.
 
-# Cellwise constant permeability
-K = FunctionSpace(mesh, "DQ", 0)
-kappa = Function(K, name="permeability")
+    Returns
+    -------
+    firedrake.Function
+        CG1 Function with values interpolated from the nodal array.
+    """
+    # Infer grid dimensions from the array shape
+    ny_plus1, nx_plus1 = arr.shape
+    nx = nx_plus1 - 1
+    ny = ny_plus1 - 1
 
-# Safer than assuming raw cell ordering: evaluate the grid data at the DQ0 dof locations
-W = VectorFunctionSpace(mesh, K.ufl_element())
-X = assemble(interpolate(mesh.coordinates, W)).dat.data_ro
+    # Create or validate the function space
+    V = function_space
 
-# Map dof locations to grid-cell indices
-# Depending on your array convention, you may need perm[iy, ix] instead of perm[ix, iy]
-ix = np.clip((X[:, 0] * nx).astype(int), 0, nx - 1)
-iy = np.clip((X[:, 1] * ny).astype(int), 0, ny - 1)
-kappa.dat.data[:] = perm[ix, iy]
+    # Create the Function
+    f = Function(V, name="from_nodal_array")
+    mesh = V.mesh()
+    # Get vertex coordinates in the order matching the DOFs of V
+    coords = mesh.coordinates.dat.data   # shape (nvertices, 2)
 
-u = TrialFunction(V)
-v = TestFunction(V)
-f = Constant(100.0)
+    # Map each vertex (x, y) to grid indices (i, j)
+    i = np.round(coords[:, 0] * nx).astype(int)   # column index (x)
+    j = np.round(coords[:, 1] * ny).astype(int)   # row index (y)
+    i = np.clip(i, 0, nx)
+    j = np.clip(j, 0, ny)
 
-a = inner(kappa * grad(u), grad(v)) * dx
-L = f * v * dx
-bc = DirichletBC(V, 0.0, "on_boundary")
+    # Look up values from the input array
+    vals = arr[j, i]
 
-uh = Function(V, name="pressure")
+    # Assign values (parallel safe)
+    with f.dat.vec_wo as v:
+        v.setValues(range(len(vals)), vals)
 
-solve(a == L, uh, bcs=bc,
-      solver_parameters={
-          "ksp_type": "cg",
-          "pc_type": "mg",
-          "mg_levels_ksp_type": "richardson",
-          "mg_levels_pc_type": "jacobi",
-          "mg_coarse_ksp_type": "preonly",
-          "mg_coarse_pc_type": "lu",
-      })
-
-
-solve(a == L, uh, bcs=bc,
-      solver_parameters={
-          "ksp_type": "richardson",
-          "pc_type": "mg",
-          "mg_levels_ksp_type": "richardson",
-          "mg_levels_pc_type": "jacobi",
-          "mg_coarse_ksp_type": "preonly",
-          "mg_coarse_pc_type": "lu",
-      })
+    return f
 
 
-solve(a == L, uh, bcs=bc,
-      solver_parameters={
-          "ksp_type": "richardson",
-          "ksp_max_it": 10,
-          "ksp_rtol": 1.0e-4,
-          "ksp_atol": 1.0e-12,
+def function_to_nodal_array(u, nx, ny):
+    """
+    Convert a CG1 Firedrake Function on a UnitSquareMesh(nx, ny) into a 2D numpy array
+    of shape (ny+1, nx+1) with values at the vertices, ordered such that arr[j, i] corresponds
+    to (x=i/nx, y=j/ny) with x varying fastest (row-major, y rows, x columns).
+    """
+    # Get the function space and mesh
+    V = u.function_space()
+    mesh = V.mesh()
+    
+    # Vertex coordinates in the order matching the DOFs of V (CG1)
+    coords = mesh.coordinates.dat.data  # shape (nvertices, 2)
+    # Values at those vertices (same order)
+    vals = u.dat.data_ro
+    
+    # Preallocate output array
+    arr = np.zeros((ny + 1, nx + 1))
+    
+    # Map each vertex (x, y) to grid indices i, j
+    i = np.round(coords[:, 0] * nx).astype(int)   # column index (x)
+    j = np.round(coords[:, 1] * ny).astype(int)   # row index (y)
+    # Clip for safety (should be exact)
+    i = np.clip(i, 0, nx)
+    j = np.clip(j, 0, ny)
+    
+    # Assign values – note: if multiple vertices map to same grid point (not possible here)
+    arr[j, i] = vals
+    
+    return arr
 
-          "pc_type": "mg",
-          "pc_mg_type": "multiplicative",
-          "pc_mg_cycle_type": "v",
+def solve_darcy_equation(nx, ny, hierarchy_level, kappa, f, solver_parameters = {}):
+    """
+    Solve the Darcy equation: -div(kappa grad u) = f on a unit square,
+    with homogeneous Dirichlet boundary conditions, using a geometric multigrid preconditioner.
 
-          "mg_levels_ksp_type": "richardson",
-          "mg_levels_ksp_max_it": 1,
-          "mg_levels_pc_type": "jacobi",
+    The mesh is constructed via a mesh hierarchy: a coarse mesh of size
+    (nx/2^hierarchy_level, ny/2^hierarchy_level) is refined `hierarchy_level` times
+    to produce the final mesh of size (nx, ny).
 
-          "mg_coarse_ksp_type": "preonly",
-          "mg_coarse_pc_type": "lu",
+    Parameters
+    ----------
+    nx, ny : int
+        Number of cells in x and y directions on the finest mesh.
+    hierarchy_level : int
+        Number of refinement levels. The coarse mesh size is nx // 2**hierarchy_level,
+        ny // 2**hierarchy_level.
+    kappa : numpy.ndarray 
+        Permeability coefficient. A numpy array of shape (ny+1, nx+1) is provided,
+        it is converted to a CG1 Function on the finest mesh using nodal_array_to_function.
+    f : numpy.ndarray 
+        Source term. Handled similarly to kappa.
+    solver_parameters : dict, optional
+        PETSc solver parameters (e.g., {"ksp_type": "cg", "pc_type": "ilu"}).
+        
+    Returns
+    -------
+    uh : firedrake.Function
+        The computed solution (CG1 function on the finest mesh).
+    V : firedrake.FunctionSpace
+        The function space on the finest mesh.
+    """
+    
+    # ------------------------------------------------------------------
+    # 1. Build mesh hierarchy
+    # ------------------------------------------------------------------
+    # Coarse mesh size must be integer; ensure nx and ny are divisible by 2**hierarchy_level            
+        
+    mesh0 = UnitSquareMesh(nx // 2**hierarchy_level, ny // 2**hierarchy_level, quadrilateral=True)
+    hierarchy = MeshHierarchy(mesh0, hierarchy_level)
+    mesh = hierarchy[-1]
 
-          "ksp_monitor": None,
-          "ksp_converged_reason": None,
-      })
+    # ------------------------------------------------------------------
+    # 2. Function space and coordinates
+    # ------------------------------------------------------------------
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    # ------------------------------------------------------------------
+    # 3. Convert kappa and f to Functions on V (if they are not already)
+    # ------------------------------------------------------------------
+    # nodal_array_to_function is assumed to exist (as defined previously)
+    kappa_func = nodal_array_to_function(kappa, function_space=V)
+    f_func = nodal_array_to_function(f, function_space=V)
+    
+    
+    # trial/test
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    # bilinear and linear forms
+    a = inner(kappa_func * grad(u), grad(v)) * dx
+    L = f_func * v * dx
+
+    # Dirichlet BC from exact solution
+    bc = DirichletBC(V, 0.0, "on_boundary")
+
+    # solution
+    uh = Function(V, name="uh")
+
+    # ------------------------------------------------------------------
+    # 5. Solve with multigrid preconditioner
+    # ------------------------------------------------------------------
+    # Start timing
+    start_time = time.perf_counter()
+    
+    solve(a == L, uh, bcs=bc, solver_parameters=solver_parameters)
+    
+    end_time = time.perf_counter()
+    solve_time = end_time - start_time
+    print(f"Solve time for {nx}x{ny} mesh: {solve_time:.4f} seconds")
+    
+    return uh, V
+
+
+def test_darcy_equation():
+    solver_parameters_cg = {
+    "ksp_type": "cg",               # Conjugate Gradient (optimal for SPD)
+    "pc_type": "mg",                # geometric multigrid
+    "pc_mg_cycle_type": "v",        # V-cycle (cheapest, usually sufficient)
+    "mg_levels_ksp_type": "chebyshev",  # Chebyshev smoothing (better than Richardson)
+    "mg_levels_ksp_max_it": 2,      # 2 smoothing iterations per level
+    "mg_levels_pc_type": "jacobi",  # Jacobi preconditioner for Chebyshev
+    "mg_coarse_ksp_type": "preonly",
+    "mg_coarse_pc_type": "lu",      # Direct solve on coarse grid
+    "ksp_rtol": 1e-8,               # relative tolerance
+    "ksp_atol": 1e-12,              # absolute tolerance
+    "ksp_max_it": 200,              # safeguard
+    "ksp_monitor": None,            # optional: print residual history
+    "ksp_converged_reason": None,   # optional: print convergence reason
+    }
+    
+    
+    solver_parameters_mg = {
+            "ksp_type": "richardson",
+            "ksp_max_it": 10,
+            "ksp_rtol": 1.0e-2,
+            "pc_type": "mg",
+            "pc_mg_type": "multiplicative",
+            "pc_mg_cycle_type": "v",
+            "mg_levels_ksp_type": "richardson",
+            "mg_levels_ksp_max_it": 1,
+            "mg_levels_pc_type": "jacobi",
+            "mg_coarse_ksp_type": "preonly",
+            "mg_coarse_pc_type": "lu",
+            "ksp_monitor": None,
+            "ksp_converged_reason": None,
+        }
+    
+    for (nx, ny, hierarchy_level) in [(256, 256, 4), (512, 512, 5)]:
+    
+        x, y = np.meshgrid(np.linspace(0,1,nx+1), np.linspace(0,1,ny+1), indexing='xy')
+        kappa_data = 1 + 2*x + y
+        u_exact_data = np.sin(np.pi * x) * np.sin(2 * np.pi * y)
+        f_data = (5 * np.pi**2 * (1 + 2*x + y) * np.sin(np.pi*x) * np.sin(2*np.pi*y) 
+        - 2*np.pi * np.cos(np.pi*x) * np.sin(2*np.pi*y)
+        - 2*np.pi * np.sin(np.pi*x) * np.cos(2*np.pi*y))
+
+        uh, V = solve_darcy_equation(nx, ny, hierarchy_level, kappa_data, f_data, solver_parameters = solver_parameters_mg)
+        
+        # function space
+        mesh = V.mesh()
+        # coordinates
+        x, y = SpatialCoordinate(mesh)
+        # exact solution
+        u_exact_expr = sin(pi * x) * sin(2 * pi * y)
+        
+        # interpolate exact solution for error computation
+        u_exact = Function(V, name="u_exact").interpolate(u_exact_expr)
+        err = Function(V, name="error")
+        err.assign(uh - u_exact)
+
+        # errors
+        print("Resolution nx, ny = ", nx, ny)
+        L2_err = norm(err, norm_type="L2")
+        H1_err = norm(err, norm_type="H1")
+        print(f"L2 error  = {L2_err:.12e}")
+        print(f"H1 error  = {H1_err:.12e}")
+        uh_data = function_to_nodal_array(uh, nx, ny)
+        Rel_L2_err = np.linalg.norm(uh_data - u_exact_data)/np.linalg.norm(u_exact_data)
+        print(f"Rel_L2_err  = {Rel_L2_err:.12e}")
+        
+    
+# Example usage
+if __name__ == "__main__":
+    test_darcy_equation()
