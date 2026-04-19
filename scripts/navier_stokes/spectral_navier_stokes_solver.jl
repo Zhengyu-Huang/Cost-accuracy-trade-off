@@ -137,9 +137,8 @@ function generate_data(;nx = 256, ny = 256, ndata = 10)
 
     dev     = CPU()
 
-    # Kolmogorov forcing parameters
-    # velocity forcing: f_x = F_amp * sin(kf * y), f_y = 0
-    # corresponding vorticity forcing: F = ∂_x f_y - ∂_y f_x = -F_amp * kf * cos(kf * y)
+    # Forcing parameters
+    # vorticity forcing: F = 0.1 ( cos [2 pi (x + y)]  +  sin [2 pi (x + y)] )
     x, y = LinRange(0, Lx, nx+1)[1:end-1], LinRange(0, Ly, ny+1)[1:end-1]
     F_phys = 0.1*[cos(2*pi*(xx + yy)) + sin(2*pi*(xx + yy)) for xx in x, yy in y]
     F_phys_dev = device_array(dev)(F_phys)

@@ -66,6 +66,6 @@ def visualize_data(data_ind = 0):
     
 # Example usage
 if __name__ == "__main__":
-    generate_initial_condition(nx = 16, ny = 16, ndata = 10)
-    # visualize_data(data_ind = 0)
+    # generate_initial_condition(nx = 256, ny = 256, ndata = 10)
+    visualize_data(data_ind = 0)
     # visualize_data(data_ind = 1)
