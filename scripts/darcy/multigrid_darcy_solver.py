@@ -4,6 +4,8 @@ import time
 import numpy as np
 from firedrake import *
 import matplotlib.pyplot as plt
+import gc
+
 
 # Add the parent directory (project/utility) to Python's search path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -260,7 +262,12 @@ def test_darcy_equation():
         
 
 def generate_data():
-    
+    """
+    Generate synthetic Darcy flow data: random permeability fields (kappa)
+    and corresponding pressure solutions (u) for a 2D Darcy equation.
+    Saves each (kappa, u) pair as a separate .npy file.
+    """
+        
     Path('../../data/darcy').mkdir(parents=True, exist_ok=True)
     
     solver_parameters_mg = {
@@ -281,40 +288,44 @@ def generate_data():
     nx = ny = 512
     ngrid = nx + 1
     L = 1.0
-    kappa_data = gaussian_random_field_2d(ndata, [ngrid, ngrid], [L, L], sigma=1.0, tau = 3.0, alpha = 2.0, bc_name = 'neumann', seed = 42)
-    positive_indices = kappa_data >= 0
-    kappa_data[positive_indices] = 10
-    kappa_data[~positive_indices] = 1
-
-    u_data = np.zeros((ndata, ngrid, ngrid))
+    
+    
     f_data = np.ones((ngrid, ngrid))
     for i in range(ndata):
-        uh, V = solve_darcy_equation(nx, ny, hierarchy_level=6, kappa = kappa_data[i,:,:], f = f_data, solver_parameters = solver_parameters_mg)
-        u_data[i,:,:] = function_to_nodal_array(uh, nx, ny)
+        kappa_data = gaussian_random_field_2d(1, [ngrid, ngrid], [L, L], sigma=1.0, tau = 3.0, alpha = 2.0, bc_name = 'neumann', seed = i)
+        kappa_data = kappa_data[0,...]
+        positive_indices = kappa_data >= 0
+        kappa_data[positive_indices] = 10
+        kappa_data[~positive_indices] = 1
         
+    
+        uh, V = solve_darcy_equation(nx, ny, hierarchy_level=6, kappa = kappa_data, f = f_data, solver_parameters = solver_parameters_mg)
+        u_data = function_to_nodal_array(uh, nx, ny)
         
-    np.save(f"../../data/darcy/kappa_data.npy", kappa_data)
-    np.save(f"../../data/darcy/u_data.npy", u_data)
+        np.save(f"../../data/darcy/darcy_data_{i:05d}.npy", np.stack([kappa_data, u_data], axis=-1))
+
 
 
 
 def visualize_data():
-
-    kappa_data = np.load("../../data/darcy/kappa_data.npy")
-    u_data = np.load("../../data/darcy/u_data.npy")
-    ndata, ngrid, _ = u_data.shape
+        
+    i = 1
+    data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
+    kappa_data, u_data = data[:,:,0], data[:,:,1]
+    
+    ngrid, _ = u_data.shape
     f_data = np.ones((ngrid, ngrid))
     x, y = np.meshgrid(np.linspace(0,1,ngrid), np.linspace(0,1,ngrid), indexing='xy')
             
-    i = 1
+    
     fig, axs = plt.subplots(1, 3, figsize=(16, 4))
-    im = axs[0].pcolormesh(x, y, kappa_data[i,:,:])
+    im = axs[0].pcolormesh(x, y, kappa_data)
     axs[0].set_title("kappa");axs[0].set_aspect('equal')
     fig.colorbar(im, ax=axs[0])
     im = axs[1].pcolormesh(x, y, f_data)
     axs[1].set_title("f");axs[1].set_aspect('equal')
     fig.colorbar(im, ax=axs[1])
-    im = axs[2].pcolormesh(x, y, u_data[i,:,:])
+    im = axs[2].pcolormesh(x, y, u_data)
     axs[2].set_title("u (predicted)");axs[2].set_aspect('equal')
     fig.colorbar(im, ax=axs[2])
     fig.savefig(f"Darcy_flow_{i}.png")

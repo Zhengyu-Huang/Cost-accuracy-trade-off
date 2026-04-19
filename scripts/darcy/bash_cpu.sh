@@ -19,4 +19,4 @@ unset OMPI_MCA_mtl
 
 . /lustre/home/2306192137/src/venv-firedrake/bin/activate
 
-python multigrid_darcy_solver.py
+python multigrid_darcy_solver.py > multigrid_darcy_solver.log
