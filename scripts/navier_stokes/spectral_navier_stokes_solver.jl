@@ -130,7 +130,7 @@ function generate_data(;nx = 256, ny = 256, ndata = 10)
     Ly = 1.0
     
     # Standard incompressible 2D Navier–Stokes viscosity
-    ν  = 1e-3
+    ν  = 1e-4
     dt = 1e-3
     Tsaves = 1.0
     nsaves = 51

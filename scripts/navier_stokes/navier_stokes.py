@@ -23,7 +23,7 @@ def generate_initial_condition(nx = 256, ny = 256, ndata = 10):
     
     L = 1.0
     
-    zeta0_data = gaussian_random_field_2d(ndata, [nx, ny], [L, L], sigma=np.sqrt(2)*7**(3/2), tau = 7.0, alpha = 2.5, bc_name = 'periodic', seed = 42)
+    zeta0_data = gaussian_random_field_2d(ndata, [nx, ny], [L, L], sigma= 7**(3/2), tau = 7.0, alpha = 2.5, bc_name = 'periodic', seed = 42)
         
     np.save(f"../../data/navier_stokes/navier_stokes_zeta0.npy", zeta0_data)
 
@@ -52,12 +52,15 @@ def visualize_data(data_ind = 0):
     x_mesh, y_mesh = np.meshgrid(x, y, indexing='xy')
             
     
-    fig, axs = plt.subplots(1, 5, figsize=(16, 4))
+    fig, axs = plt.subplots(2, 7, figsize=(21, 12))
+    axs = axs.reshape(-1)
     im = axs[0].pcolormesh(x_mesh, y_mesh, f_data)
     axs[0].set_title("vorticity force");axs[0].set_aspect('equal')
     fig.colorbar(im, ax=axs[0])
     
-    for i,it in enumerate([0, 1, (nsaves-1)//10, (nsaves-1)]):
+    indices = sorted(set([0, 1, 2] + [(nsaves-1) * k // 10 for k in range(1, 11)]))
+
+    for i,it in enumerate(indices):
         im = axs[i+1].pcolormesh(x_mesh, y_mesh, zeta_data[it,...])
         axs[i+1].set_title(f"vorticity (T=${dt*it:.1f})");axs[i+1].set_aspect('equal')
         fig.colorbar(im, ax=axs[i+1])
@@ -68,4 +71,4 @@ def visualize_data(data_ind = 0):
 if __name__ == "__main__":
     # generate_initial_condition(nx = 256, ny = 256, ndata = 10)
     visualize_data(data_ind = 0)
-    # visualize_data(data_ind = 1)
+    visualize_data(data_ind = 1)
