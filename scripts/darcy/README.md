@@ -55,3 +55,23 @@ unset OMPI_MCA_pml
 unset OMPI_MCA_mtl
 
 . /lustre/home/2306192137/src/venv-firedrake/bin/activate
+
+
+
+## Generate training data on wm2
+
+sbatch bash_cpu.sh
+
+Generate data in `../../data/darcy/darcy_data_{i:05d}.npy`
+
+Each data file contains a `(n+1) by (n+1) by 2` numpy array: 
+
+2D array of shape (nx+1, ny+1), where arr[i, j] corresponds to the grid point
+(x = i/nx, y = j/ny). The mesh must have vertices exactly at these points.
+
+These two channels correspond to the permeability field `kappa` and pressure solution `u` 
+
+To visualize:
+    x, y = np.meshgrid(np.linspace(0,1,nx), np.linspace(0,1,ny), indexing='ij')
+    fig, axs = plt.subplots(1, 1, figsize=(6, 6))
+    im = axs[0].pcolormesh(x, y, kappa)

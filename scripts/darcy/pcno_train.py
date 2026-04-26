@@ -23,39 +23,34 @@ np.set_printoptions(precision=10, suppress=True)
 def preprocess_data(n_train, n_test, downsample = 1, preprocess_data:bool = True, pcno_data_file = "../../data/darcy/pcno_data.npz"):
     '''
     参数：
-    data: (ndata, nT+1, N, 4) 的 numpy 数组，分别表示 nT+1 个时间步的波函数实部、虚部、势能和位置
     n_train: 训练样本数量
     n_test: 测试样本数量
-
-    添上最后一个点
     '''
-    n_total_data = 10
+    n_file = 2
     n_data = n_train + n_test
     
     # the data is on 513 by 513 array 
     n = 512
     stride = 2**downsample 
-    
     n = n // stride
-    
-    L = 1.0
-    
-    x = np.linspace(0.0, L, n+1, endpoint=True)
-    y = np.linspace(0.0, L, n+1, endpoint=True)
-    x_grid, y_grid = np.meshgrid(x, y, indexing="ij")
-    
+    L = 1.0    
     
     if preprocess_data:
-        
+        x = np.linspace(0.0, L, n+1, endpoint=True)
+        y = np.linspace(0.0, L, n+1, endpoint=True)
+        x_grid, y_grid = np.meshgrid(x, y, indexing="ij")
+    
         coords_list = [np.tile(x_grid, (n_data, 1, 1)), np.tile(y_grid, (n_data, 1, 1))]
         
         features = []
-        for i in list(range(n_train)) + [n_total_data + x for x in range(-n_test, 0)]:
+        for i in list(range(n_train)) + [n_file + x for x in range(-n_test, 0)]:
             data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
+            # data : n by n by 2 array. 
+            # kappa, u
             features.append(data[0::stride, 0::stride, :])
+            
         features = np.array(features)
         
-        print(coords_list[0].shape)
         vertices_list, elems_list, features_list  = convert_structured_data(coords_list, features, nnodes_per_elem = 4, feature_include_coords = True)
         
         nnodes, node_mask, nodes, node_measures, features, directed_edges, edge_gradient_weights = preprocess_data_mesh(vertices_list, elems_list, features_list, mesh_type='vertex_centered', adjacent_type='edge')
@@ -112,8 +107,8 @@ if __name__ == "__main__":
     model = setup_model(in_dim, out_dim, device)
     
 
-    n_train, n_test = 5, 5
-    downsample = 3
+    n_train, n_test = 1, 1
+    downsample = 7
     x_train, aux_train, y_train, x_test, aux_test, y_test = preprocess_data(n_train, n_test, downsample, preprocess_data = True, pcno_data_file = "../../data/darcy/pcno_data.npz")
 
     epochs = 500

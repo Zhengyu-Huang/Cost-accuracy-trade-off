@@ -28,7 +28,7 @@ def generate_initial_condition(nx = 256, ny = 256, ndata = 10):
     np.save(f"../../data/navier_stokes/navier_stokes_zeta0.npy", zeta0_data)
 
 
-    x, y = np.meshgrid(np.linspace(0,L,nx,endpoint=False), np.linspace(0,1,ny,endpoint=False), indexing='xy')
+    x, y = np.meshgrid(np.linspace(0,L,nx,endpoint=False), np.linspace(0,1,ny,endpoint=False), indexing='ij')
     fig, axs = plt.subplots(1, 4, figsize=(16, 4))
     for i in range(4):
         im = axs[i].pcolormesh(x, y, zeta0_data[i,:,:])
@@ -45,11 +45,11 @@ def visualize_data(data_ind = 0):
     data = np.load(f"../../data/navier_stokes/navier_stokes_{data_ind:05d}.npy")
     f_data, zeta_data = data[0,...], data[1:,...]
     
-    nsaves, ngrid, _ = zeta_data.shape
-    x, y = np.linspace(0,L,ngrid,endpoint=False), np.linspace(0,L,ngrid,endpoint=False)
+    nsaves, nx, ny = zeta_data.shape
+    x, y = np.linspace(0,L,nx,endpoint=False), np.linspace(0,L,ny,endpoint=False)
     
 
-    x_mesh, y_mesh = np.meshgrid(x, y, indexing='xy')
+    x_mesh, y_mesh = np.meshgrid(x, y, indexing='ij')
             
     
     fig, axs = plt.subplots(2, 7, figsize=(21, 12))
@@ -69,6 +69,6 @@ def visualize_data(data_ind = 0):
     
 # Example usage
 if __name__ == "__main__":
-    # generate_initial_condition(nx = 256, ny = 256, ndata = 10)
-    visualize_data(data_ind = 0)
-    visualize_data(data_ind = 1)
+    generate_initial_condition(nx = 256, ny = 256, ndata = 2000)
+    # visualize_data(data_ind = 0)
+    # visualize_data(data_ind = 1)

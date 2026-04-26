@@ -1,65 +1,27 @@
 ## Install GeophysicalFlows on wm2
 
 
-https://fourierflows.github.io/GeophysicalFlowsDocumentation/stable/installation_instructions/
+install Julia
 
-
-module load gcc/12.2.0
-module load openmpi/4.1.5-gcc_12.2.0
-module load cmake/3.31.9
-module load OpenBLAS/0.3.17
-
-
-export OMPI_MCA_btl=self,vader,tcp
-unset OMPI_MCA_pml
-unset OMPI_MCA_mtl
+using Pkg
+Pkg.add("GeophysicalFlows")
 
 
 
+## Generate training data on wm2
 
-git clone https://github.com/spectralDNS/spectralDNS.git
+sbatch bash_cpu.sh
 
-cd spectralDNS
+Generate data in `../../data/navier_stokes/navier_stokes_%05d.npy`
 
-python setup.py build_ext --inplace
+Each data file contains a `nt+2 by n by n` numpy array: 
 
-conda create --name spectralDNS -c conda-forge shenfun mpi4py-fft cython numba pythran mpich pip h5py=*=mpi*
-conda activate spectralDNS
+2D array of shape (nx, ny), where arr[i, j] corresponds to the grid point
+(x = i/nx, y = j/ny) with 0<=i<nx , 0<=j<ny. The mesh must have vertices exactly at these points.
 
+These nt+2 channels correspond to the vorticity forcing field `f` and vorticity solution `w_0`,`w_1`,...,`w_nt`  
 
-python3 ../firedrake-configure --no-package-manager --show-petsc-configure-options | xargs -L1 ./configure
-make PETSC_DIR=/lustre/home/2306192137/src/petsc PETSC_ARCH=arch-firedrake-default all
-make PETSC_DIR=/lustre/home/2306192137/src/petsc PETSC_ARCH=arch-firedrake-default check
-cd ..
-
-python3 -m venv venv-firedrake
-. venv-firedrake/bin/activate
-
-pip cache purge
-
-export $(python3 firedrake-configure --no-package-manager  --show-env)
-pip install --no-binary h5py 'firedrake[check]'
-
-firedrake-check
-
-! When any library is not supported, for example h5py
-pip uninstall -y h5py
-pip install --upgrade firedrake
-
-
-
-
-## Use firedrake on wm2
-
-module load anaconda3/2024.10.1 
-module load gcc/12.2.0
-module load openmpi/4.1.5-gcc_12.2.0
-module load cmake/3.31.9
-module load OpenBLAS/0.3.17
-
-
-export OMPI_MCA_btl=self,vader,tcp
-unset OMPI_MCA_pml
-unset OMPI_MCA_mtl
-
-. /lustre/home/2306192137/src/venv-firedrake/bin/activate
+To visualize:
+    x, y = np.meshgrid(np.linspace(0,1,nx), np.linspace(0,1,ny), indexing='ij')
+    fig, axs = plt.subplots(1, 1, figsize=(6, 6))
+    im = axs[0].pcolormesh(x, y, f)

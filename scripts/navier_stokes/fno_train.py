@@ -26,7 +26,7 @@ def preprocess_data(n_train, n_test, downsample = 1):
     n_test: 测试样本数量
     '''
     # the data is on 256 by 256 array 
-    n_total_data, n, nt = 10, 256, 50
+    n_file, n, nt = 10, 256, 50
     stride = 2**downsample 
     
     n = n // stride
@@ -38,7 +38,7 @@ def preprocess_data(n_train, n_test, downsample = 1):
     x_grid, y_grid = np.meshgrid(x, y, indexing="ij")
     
     X, Y = [], []
-    for i in list(range(math.ceil(n_train / nt))) + [n_total_data + x for x in range(-math.ceil(n_test / nt), 0)]:
+    for i in list(range(math.ceil(n_train / nt))) + [n_file + x for x in range(-math.ceil(n_test / nt), 0)]:
         data = np.load(f"../../data/navier_stokes/navier_stokes_{i:05d}.npy")
         # data : nt+2 by n by n array. 
         # forcing, vorticity_0, vorticity_1, ......, vorticity_nt

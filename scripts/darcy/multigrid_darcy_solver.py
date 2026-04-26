@@ -16,12 +16,12 @@ from utility.gaussian_random_fields import gaussian_random_field_2d
 
 def nodal_array_to_function(arr, function_space):
     """
-    Convert a nodal array (shape (ny+1, nx+1)) to a Firedrake CG1 Function.
+    Convert a nodal array (shape (nx+1, ny+1)) to a Firedrake CG1 Function.
 
     Parameters
     ----------
     arr : np.ndarray
-        2D array of shape (ny+1, nx+1), where arr[j, i] corresponds to the grid point
+        2D array of shape (nx+1, ny+1), where arr[i, j] corresponds to the grid point
         (x = i/nx, y = j/ny). The mesh must have vertices exactly at these points.
     mesh : firedrake.Mesh
         Structured rectangular mesh (e.g., UnitSquareMesh(nx, ny)).
@@ -54,7 +54,7 @@ def nodal_array_to_function(arr, function_space):
     j = np.clip(j, 0, ny)
 
     # Look up values from the input array
-    vals = arr[j, i]
+    vals = arr[i, j]
 
     # Assign values (parallel safe)
     with f.dat.vec_wo as v:
@@ -66,7 +66,7 @@ def nodal_array_to_function(arr, function_space):
 def function_to_nodal_array(u, nx, ny):
     """
     Convert a CG1 Firedrake Function on a UnitSquareMesh(nx, ny) into a 2D numpy array
-    of shape (ny+1, nx+1) with values at the vertices, ordered such that arr[j, i] corresponds
+    of shape (nx+1, ny+1) with values at the vertices, ordered such that arr[i, j] corresponds
     to (x=i/nx, y=j/ny) with x varying fastest (row-major, y rows, x columns).
     """
     # Get the function space and mesh
@@ -79,7 +79,7 @@ def function_to_nodal_array(u, nx, ny):
     vals = u.dat.data_ro
     
     # Preallocate output array
-    arr = np.zeros((ny + 1, nx + 1))
+    arr = np.zeros((nx + 1, ny + 1))
     
     # Map each vertex (x, y) to grid indices i, j
     i = np.round(coords[:, 0] * nx).astype(int)   # column index (x)
@@ -89,7 +89,7 @@ def function_to_nodal_array(u, nx, ny):
     j = np.clip(j, 0, ny)
     
     # Assign values – note: if multiple vertices map to same grid point (not possible here)
-    arr[j, i] = vals
+    arr[i, j] = vals
     
     return arr
 
@@ -183,7 +183,6 @@ def test_darcy_equation():
         "pc_type": "mg",                # geometric multigrid
         "pc_mg_cycle_type": "v",        # V-cycle (cheapest, usually sufficient)
         "mg_levels_ksp_type": "chebyshev",  # Chebyshev smoothing (better than Richardson)
-        "mg_levels_ksp_max_it": 2,      # 2 smoothing iterations per level
         "mg_levels_pc_type": "jacobi",  # Jacobi preconditioner for Chebyshev
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",      # Direct solve on coarse grid
@@ -196,13 +195,12 @@ def test_darcy_equation():
     
     solver_parameters_mg = {
         "ksp_type": "richardson",
-        "ksp_max_it": 10,
-        "ksp_rtol": 1.0e-2,
+        #"ksp_max_it": 10,
+        #"ksp_rtol": 1.0e-5,
         "pc_type": "mg",
         "pc_mg_type": "multiplicative",
         "pc_mg_cycle_type": "v",
         "mg_levels_ksp_type": "richardson",
-        "mg_levels_ksp_max_it": 1,
         "mg_levels_pc_type": "jacobi",
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
@@ -213,7 +211,7 @@ def test_darcy_equation():
     
     for (nx, ny, hierarchy_level) in [(256, 256, 4), (512, 512, 5)]:
     
-        x, y = np.meshgrid(np.linspace(0,1,nx+1), np.linspace(0,1,ny+1), indexing='xy')
+        x, y = np.meshgrid(np.linspace(0,1,nx+1), np.linspace(0,1,ny+1), indexing='ij')
         kappa_data = 1 + 2*x + y
         u_exact_data = np.sin(np.pi * x) * np.sin(2 * np.pi * y)
         f_data = (5 * np.pi**2 * (1 + 2*x + y) * np.sin(np.pi*x) * np.sin(2*np.pi*y) 
@@ -315,7 +313,7 @@ def visualize_data():
     
     ngrid, _ = u_data.shape
     f_data = np.ones((ngrid, ngrid))
-    x, y = np.meshgrid(np.linspace(0,1,ngrid), np.linspace(0,1,ngrid), indexing='xy')
+    x, y = np.meshgrid(np.linspace(0,1,ngrid), np.linspace(0,1,ngrid), indexing='ij')
             
     
     fig, axs = plt.subplots(1, 3, figsize=(16, 4))
@@ -334,4 +332,4 @@ def visualize_data():
 if __name__ == "__main__":
     # test_darcy_equation()
     generate_data()
-    visualize_data()
+    # visualize_data()

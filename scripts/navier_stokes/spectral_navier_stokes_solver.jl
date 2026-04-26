@@ -5,9 +5,9 @@ using Random
 using CUDA
 using Printf
 using LinearAlgebra
+using Base.Threads
 
-
-function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave, nsaves = 101, dev = CPU())
+function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave, nsaves = 101, dev = CPU(); verbose = false )
     # ============================================================
     # User parameters
     # ============================================================
@@ -70,7 +70,9 @@ function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave, nsaves = 101, dev = CP
         times[m + 1] = clock.t
         zeta_data[m + 1, :, :] .= Array(vars.ζ)
 
-        println("saved snapshot ", m, " at t = ", clock.t)
+        if verbose
+            println("saved snapshot ", m, " at t = ", clock.t)
+        end
     end
 
     return zeta_data
@@ -81,7 +83,8 @@ function taylor_green_vortex_test()
     # -----------------------------
     # parameters
     # -----------------------------
-    n       = 128
+    nx       = 128
+    ny       = 64
     L       = 2π
     ν       = 1e-2
     dt      = 1e-3
@@ -97,19 +100,19 @@ function taylor_green_vortex_test()
     # -----------------------------
     # GeophysicalFlows examples use real-space arrays for vars.ζ and initialize
     # with set_ζ!(prob, ζ₀). We build ζ₀ on the periodic grid.
-    x, y = LinRange(0, L, n+1)[1:end-1], LinRange(0, L, n+1)[1:end-1]
+    x, y = LinRange(0, L, nx+1)[1:end-1], LinRange(0, L, ny+1)[1:end-1]
     ζ0 = [2 * k * U0 * sin(k * xx) * sin(k * yy) for xx in x, yy in y]
 
     # exact vorticity at time T
     decay = exp(-2 * ν * k^2 * T)
     ζ_exact = [2 * k * U0 * decay * sin(k * xx) * sin(k * yy) for xx in x, yy in y]
 
-    F_phys = zeros(n,n)
+    F_phys = zeros(nx,ny)
     F_phys_dev = device_array(dev)(F_phys)
     F_hat = rfft(F_phys_dev)
 
                      
-    zeta_data = solve(n, n, L, L, ν, ζ0, F_hat, dt, T, 2, dev)
+    zeta_data = solve(nx, ny, L, L, ν, ζ0, F_hat, dt, T, 2, dev; verbose = true)
 
     # -----------------------------
     # errors
@@ -146,12 +149,19 @@ function generate_data(;nx = 256, ny = 256, ndata = 10)
     
 
     zeta0_data = NPZ.npzread("../../data/navier_stokes/navier_stokes_zeta0.npy")
-    for i = 1:ndata
+    @threads for i = 1:ndata
         ζ0 = zeta0_data[i,:,:]       
         zeta_data = solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsaves, nsaves, dev)
         # ============================================================
         # Save to NumPy-compatible .npz
         # ============================================================
+
+        if any(isnan, zeta_data)
+            # Print the index (thread-safe, but output might interleave – that's fine)
+            println("NaN detected in iteration i = ", i)
+        end
+
+
         NPZ.npzwrite(@sprintf("../../data/navier_stokes/navier_stokes_%05d.npy", i-1), vcat(reshape(F_phys, 1, nx, ny),zeta_data))
     end
 
@@ -162,5 +172,5 @@ end
 
 
 taylor_green_vortex_test()
-generate_data(nx = 256, ny = 256, ndata = 2)
+generate_data(nx = 256, ny = 256, ndata = 2000)
 

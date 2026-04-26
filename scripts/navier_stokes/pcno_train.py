@@ -30,7 +30,7 @@ def preprocess_data(n_train, n_test, downsample = 1, preprocess_data:bool = True
     '''
     
     # the data is on 513 by 513 array 
-    n_total_data, n, nt = 10, 256, 50
+    n_file, n, nt = 2, 256, 50
     stride = 2**downsample 
     n_data = n_train + n_test
     n = n // stride
@@ -42,9 +42,9 @@ def preprocess_data(n_train, n_test, downsample = 1, preprocess_data:bool = True
         y = np.linspace(0.0, L, n, endpoint=False)
         x_grid, y_grid = np.meshgrid(x, y, indexing="ij")
         ij  = np.reshape(np.arange(0, n*n),(n, n))
-    
+
         features = []
-        for i in list(range(math.ceil(n_train / nt))) + [n_total_data + x for x in range(-math.ceil(n_test / nt), 0)]:
+        for i in list(range(math.ceil(n_train / nt))) + [n_file + x for x in range(-math.ceil(n_test / nt), 0)]:
             data = np.load(f"../../data/navier_stokes/navier_stokes_{i:05d}.npy")
             # data : nt+2 by n by n array. 
             # forcing, vorticity_0, vorticity_1, ......, vorticity_nt
@@ -56,7 +56,7 @@ def preprocess_data(n_train, n_test, downsample = 1, preprocess_data:bool = True
        
         # 转化为 torch tensor
         node_mask = np.ones((n_data, n*n, 1))
-        nodes = np.tile( np.stack([x_grid.reshape(-1),y_grid.reshape(-1)], axis=1), 
+        nodes = np.tile( np.stack([x_grid.reshape(-1), y_grid.reshape(-1)], axis=1), 
                         (n_data, 1, 1))
         node_weights = np.ones((n_data, n*n, 1))/(n*n)
         n_features = features.shape[-1]
@@ -81,13 +81,12 @@ def preprocess_data(n_train, n_test, downsample = 1, preprocess_data:bool = True
         
         
         
-        
-        
     # scaled by a constant
     node_weights = node_weights
     # 转化为 torch tensor
     node_mask, nodes, node_weights, features, directed_edges, edge_gradient_weights = torch.from_numpy(node_mask), torch.from_numpy(nodes.astype(np.float32)), torch.from_numpy(node_weights.astype(np.float32)), torch.from_numpy(features.astype(np.float32)), torch.from_numpy(directed_edges), torch.from_numpy(edge_gradient_weights.astype(np.float32))
 
+    
     x_train, y_train = features[0:n_train,...,[0,2,3,4]], features[0:n_train,...,[1]]
     x_test, y_test = features[-n_test:,...,[0,2,3,4]], features[-n_test:,...,[1]]
 
@@ -126,8 +125,8 @@ if __name__ == "__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = setup_model(in_dim, out_dim, device)
 
-    n_train, n_test = 200, 200
-    downsample = 2
+    n_train, n_test = 1, 1
+    downsample = 6
     x_train, aux_train, y_train, x_test, aux_test, y_test = preprocess_data(n_train, n_test, downsample, preprocess_data = True, pcno_data_file = "../../data/navier_stokes/pcno_data.npz")
 
     epochs = 500

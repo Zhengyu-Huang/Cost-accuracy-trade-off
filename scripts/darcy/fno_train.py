@@ -25,8 +25,7 @@ def preprocess_data(n_train, n_test, downsample = 1):
     n_train: 训练样本数量
     n_test: 测试样本数量
     '''
-    n_total_data = 10
-    n_data = n_train + n_test
+    n_file = 10
     
     # the data is on 513 by 513 array 
     n = 512
@@ -41,8 +40,10 @@ def preprocess_data(n_train, n_test, downsample = 1):
     x_grid, y_grid = np.meshgrid(x, y, indexing="ij")
     
     X, Y = [], []
-    for i in list(range(n_train)) + [n_total_data + x for x in range(-n_test, 0)]:
+    for i in list(range(n_train)) + [n_file + x for x in range(-n_test, 0)]:
         data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
+        # data : n by n by 2 array. 
+        # kappa, u
         data = data[0::stride, 0::stride, :]
         X.append(np.stack([data[:,:,0], x_grid, y_grid], axis=2))    # kappa, x, y
         Y.append(data[:,:,1:])                                       # u
