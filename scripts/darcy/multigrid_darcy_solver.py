@@ -67,7 +67,7 @@ def function_to_nodal_array(u, nx, ny):
     """
     Convert a CG1 Firedrake Function on a UnitSquareMesh(nx, ny) into a 2D numpy array
     of shape (nx+1, ny+1) with values at the vertices, ordered such that arr[i, j] corresponds
-    to (x=i/nx, y=j/ny) with x varying fastest (row-major, y rows, x columns).
+    to (x=i/nx, y=j/ny).
     """
     # Get the function space and mesh
     V = u.function_space()
@@ -174,7 +174,7 @@ def solve_darcy_equation(nx, ny, hierarchy_level, kappa, f, solver_parameters = 
     solve_time = end_time - start_time
     print(f"Solve time for {nx}x{ny} mesh: {solve_time:.4f} seconds")
     
-    return uh, V
+    return uh, V, solve_time
 
 
 def test_darcy_equation():
@@ -218,7 +218,7 @@ def test_darcy_equation():
         - 2*np.pi * np.cos(np.pi*x) * np.sin(2*np.pi*y)
         - 2*np.pi * np.sin(np.pi*x) * np.cos(2*np.pi*y))
 
-        uh, V = solve_darcy_equation(nx, ny, hierarchy_level, kappa_data, f_data, solver_parameters = solver_parameters_mg)
+        uh, V, _ = solve_darcy_equation(nx, ny, hierarchy_level, kappa_data, f_data, solver_parameters = solver_parameters_mg)
         
         # function space
         mesh = V.mesh()
@@ -259,6 +259,12 @@ def test_darcy_equation():
         fig.savefig(f"Darcy_flow_{nx}_{ny}.png")
         
 
+
+        
+
+
+    
+    
 def generate_data():
     """
     Generate synthetic Darcy flow data: random permeability fields (kappa)
@@ -281,12 +287,10 @@ def generate_data():
         "ksp_converged_reason": None,
     }
         
-        
     ndata = 10000
     nx = ny = 512
     ngrid = nx + 1
     L = 1.0
-    
     
     f_data = np.ones((ngrid, ngrid))
     for i in range(ndata):
@@ -296,8 +300,7 @@ def generate_data():
         kappa_data[positive_indices] = 10
         kappa_data[~positive_indices] = 1
         
-    
-        uh, V = solve_darcy_equation(nx, ny, hierarchy_level=6, kappa = kappa_data, f = f_data, solver_parameters = solver_parameters_mg)
+        uh, V, _ = solve_darcy_equation(nx, ny, hierarchy_level=6, kappa = kappa_data, f = f_data, solver_parameters = solver_parameters_mg)
         u_data = function_to_nodal_array(uh, nx, ny)
         
         np.save(f"../../data/darcy/darcy_data_{i:05d}.npy", np.stack([kappa_data, u_data], axis=-1))
@@ -328,8 +331,119 @@ def visualize_data():
     fig.colorbar(im, ax=axs[2])
     fig.savefig(f"Darcy_flow_{i}.png")
     
+    
+    
+def cost_accuracy_traditional_solver():
+    """
+    Traditional solver error .
+    """
+    # load reference solution
+    
+    m_iteration = 20  # number of multigrid v cycle iterations
+    nu_iteration = 2  # number of smoothing per multigrid v cycle iteration
+    
+    solver_parameters_mg = {
+        "ksp_type": "richardson",
+        "pc_type": "mg",
+        "pc_mg_type": "multiplicative",
+        "pc_mg_cycle_type": "v",
+        "mg_levels_ksp_type": "richardson",
+        "mg_levels_pc_type": "jacobi",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "lu",
+        # "ksp_monitor": None,
+        # "ksp_converged_reason": None,
+    }
+    
+    nx = ny = 512
+    ngrid = nx + 1
+    L = 1.0
+    n_downsample, n_trial = 6, 10
+    cost, accuracy = np.zeros((n_downsample, n_trial, 2)), np.zeros((n_downsample, n_trial))
+    sol = []
+    for downsample in range(6):
+        for i in range(10):
+            data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
+            print(data.shape)
+            # data : n by n by 2 array. 
+            # kappa, u
+            stride = 2**downsample
+            data = data[0::stride, 0::stride, :]
+            kappa_data, u_ref  = data[:,:,0], data[:,:,1]
+            n_plus1, _ = kappa_data.shape  # number of point in each direction
+            n = n_plus1 - 1                # number of element in each direction
+            f_data = np.ones((n, n))
+            
+            uh, V, cost_cpu_time = solve_darcy_equation(n, n, hierarchy_level=6-downsample, kappa = kappa_data, f = f_data, solver_parameters = solver_parameters_mg)
+            u_data = function_to_nodal_array(uh, n, n)
+            
+            
+            
+            rel_error = np.linalg.norm(u_data - u_ref)/np.linalg.norm(u_ref)
+            cost[downsample, i, :] =  271*n*n + m_iteration*(88/3 * nu_iteration + 116/3), cost_cpu_time
+            accuracy[downsample, i] = rel_error
+            print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time)
+
+            if i == 0: # save data
+                sol.append(np.stack([kappa_data, u_ref, u_data], axis=2))
+    
+    np.savez_compressed('cost_accuracy_traditional_solver_data.npz', cost=cost, accuracy=accuracy, sol=np.array(sol, dtype=object))
+
+    return  cost, accuracy, sol 
+
+def cost_accuracy_plot():
+    cost_accuracy_traditional_solver_data = np.load('cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
+    cost = cost_accuracy_traditional_solver_data['cost']
+    accuracy = cost_accuracy_traditional_solver_data['accuracy']
+    sol = cost_accuracy_traditional_solver_data['sol'].tolist()   # list of [kappa_data, u_ref, u_data]
+
+    ngrid, _, _ = sol[0].shape
+    
+    fig, axs = plt.subplots(2, 4, figsize=(16, 6))
+    x, y = np.meshgrid(np.linspace(0,1,ngrid), np.linspace(0,1,ngrid), indexing='ij')
+    im = axs[0,0].pcolormesh(x, y, sol[0][...,1], shading = "gouraud") # u_ref
+    fig.colorbar(im, ax=axs[0,0])
+    axs[0,0].set_title(fr'$u ({ngrid-1} \times {ngrid-1})$')
+    im = axs[1,0].pcolormesh(x, y, sol[0][...,0], shading = "gouraud") # kappa_ref
+    fig.colorbar(im, ax=axs[1,0])
+    axs[1,0].set_title(r'$\kappa$')
+    for downsample in range(1,4):
+        stride = 2**downsample
+        im = axs[0,downsample].pcolormesh(x[0::stride, 0::stride], y[0::stride, 0::stride], sol[downsample][...,2], shading = "gouraud") # u_ref
+        fig.colorbar(im, ax=axs[0,downsample])
+        axs[0,downsample].set_title(fr'$u ({(ngrid-1)//stride} \times {(ngrid-1)//stride})$')
+        im = axs[1,downsample].pcolormesh(x[0::stride, 0::stride], y[0::stride, 0::stride], np.fabs(sol[downsample][...,2] - sol[downsample][...,1]), shading = "gouraud") # kappa_ref
+        fig.colorbar(im, ax=axs[1,downsample])
+        axs[1,downsample].set_title('Error')
+    fig.tight_layout()
+    fig.savefig("solution_traditional_solver.pdf")    
+    
+    
+    
+    
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+    
+    mean_cost = np.mean(cost, axis=1)     
+    mean_accuracy = np.mean(accuracy, axis=1)    
+    std_cost  = np.std(cost, axis=1, ddof=1)       
+    std_accuracy  = np.std(accuracy, axis=1, ddof=1)
+
+    axs[0].loglog(mean_accuracy, mean_cost[...,0], 'o-')
+    axs[0].errorbar(mean_accuracy, mean_cost[...,0], xerr=std_accuracy, fmt='o')
+    axs[0].set_xlabel("Rel. error")
+    axs[0].set_ylabel("Floating-point cost")
+    axs[1].loglog(mean_accuracy, mean_cost[...,1], 'o-')
+    axs[1].errorbar(mean_accuracy, mean_cost[...,1], xerr=std_accuracy, yerr=std_cost[...,1], fmt='o')
+    axs[1].set_xlabel("Rel. error")
+    axs[1].set_ylabel("CPU cost (s)")
+
+    fig.tight_layout()
+    fig.savefig("cost_accuracy_traditional_solver.pdf")    
+        
 # Example usage
 if __name__ == "__main__":
     # test_darcy_equation()
-    generate_data()
+    # generate_data()
     # visualize_data()
+    # cost_accuracy_traditional_solver()
+    cost_accuracy_plot()

@@ -165,12 +165,77 @@ function generate_data(;nx = 256, ny = 256, ndata = 10)
         NPZ.npzwrite(@sprintf("../../data/navier_stokes/navier_stokes_%05d.npy", i-1), vcat(reshape(F_phys, 1, nx, ny),zeta_data))
     end
 
+end
+
+
+function cost_accuracy_traditional_solver()
+    """
+    Traditional solver error .
+    """
+    # load reference solution
     
+    nt = 50  # number of iterations
+    dev = CPU()
+    ν = 1e-4
+
+    nx = ny = 256
+    dt = 1/512.0
+
+    Tsaves = 1.0
+    L = 1.0
+    n_downsample, n_trial = 4, 2
+    cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial)
+    sol = []
+    for downsample = 0:n_downsample-1 
+        stride = 2^downsample
+        for i = 1:n_trial
+            data = NPZ.npzread(@sprintf("../../data/navier_stokes/navier_stokes_%05d.npy", i-1))
+            # data : nt+2 by n by n array. 
+            # F, w_0, w_1, ... , w_nt
+            
+            data = data[:, 1:stride:end, 1:stride:end]
+            F_phys, zeta_data_ref  = data[1, :,:], data[2:end,:,:]
+            F_phys_dev = device_array(dev)(F_phys)
+            F_hat = rfft(F_phys_dev)
+
+            ζ0 = zeta_data_ref[1,:,:]
+
+            n, _ = size(F_phys)            # number of cells in each direction
+            ne = n * n
+            start_time = time()
+            zeta_data = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
+            end_time = time()
+            
+            
+            
+            rel_error = norm(zeta_data - zeta_data_ref)/norm(zeta_data_ref)
+            cost_cpu_time = end_time - start_time
+            cost[downsample+1, i, :] .=  [nt*Tsaves/(dt*stride)*(100*ne*log2(ne) + 184*ne), cost_cpu_time]            
+            accuracy[downsample+1, i] = rel_error
+            print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time, "\n")
+
+            if i == 1 # save data
+                push!(sol, cat(reshape(F_phys, 1, n, n), zeta_data_ref, zeta_data; dims=1))
+            end
+        end
+    end
+
+    save_data = Dict{String, Any}()
+    save_data["cost"] = cost
+    save_data["accuracy"] = accuracy
+    save_data["sol_length"] = n_downsample
+    for i = 0:n_downsample-1
+        save_data["sol_$i"] = sol[i+1]
+    end
+
+    NPZ.npzwrite("cost_accuracy_traditional_solver_data.npz", save_data)
+    
+    return  cost, accuracy, sol 
 
 end
 
 
 
-taylor_green_vortex_test()
-generate_data(nx = 256, ny = 256, ndata = 2000)
-
+# taylor_green_vortex_test()
+# generate_data(nx = 256, ny = 256, ndata = 2000)
+cost_accuracy_traditional_solver()

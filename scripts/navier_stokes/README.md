@@ -25,3 +25,10 @@ To visualize:
     x, y = np.meshgrid(np.linspace(0,1,nx), np.linspace(0,1,ny), indexing='ij')
     fig, axs = plt.subplots(1, 1, figsize=(6, 6))
     im = axs[0].pcolormesh(x, y, f)
+
+## Numerical method cost accuracy trade-off
+Estimate the cost (floating point flops and CPU time) and accuracy (relative error) with different downsampled meshes, save the data
+cost_accuracy_traditional_solver() in spectral_navier_stokes_solver.jl
+
+Plot solutions with different downsampled meshes, plot cost accuracy trade-off curves 
+cost_accuracy_plot() in navier_stokes.py
