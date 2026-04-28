@@ -1,0 +1,39 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict.post;
+}
+
+wallShearStressAll
+{
+    type        wallShearStress;
+    libs        ("libfieldFunctionObjects.so");
+
+    patches     (body frontWheels rearWheels);
+
+    writeControl writeTime;
+}
+
+Cp
+{
+    type        pressure;
+    libs        ("libfieldFunctionObjects.so");
+
+    field       p;
+    U           U;
+
+    rho         rhoInf;
+    rhoInf      1;
+
+    result      Cp;
+
+    calcTotal   no;
+    calcCoeff   yes;
+
+    pInf        0;
+    UInf        (16 0 0);
+
+    writeControl writeTime;
+}

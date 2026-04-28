@@ -7,21 +7,21 @@
 \*---------------------------------------------------------------------------*/
 FoamFile
 {
-    format      ascii;
-    class       dictionary;
-    object      decomposeParDict;
+    format          ascii;
+    class           dictionary;
+    object          decomposeParDict;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-numberOfSubdomains  8;
+numberOfSubdomains 8;
 
-method              scotch;
-//method              hierarchical;
+method          scotch;
 
 hierarchicalCoeffs
 {
-    n               (4 2 1);
+    n               ( 4 2 1 );
     order           xyz;
 }
+
 
 // ************************************************************************* //
