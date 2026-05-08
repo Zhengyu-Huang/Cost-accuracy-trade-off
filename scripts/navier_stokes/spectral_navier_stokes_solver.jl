@@ -168,14 +168,14 @@ function generate_data(;nx = 256, ny = 256, ndata = 10)
 end
 
 
-function cost_accuracy_traditional_solver()
+function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
     """
     Traditional solver error .
     """
     # load reference solution
     
     nt = 50  # number of iterations
-    dev = CPU()
+    dev = device == "cpu" ? CPU() : GPU()
     ν = 1e-4
 
     nx = ny = 256
@@ -183,8 +183,7 @@ function cost_accuracy_traditional_solver()
 
     Tsaves = 1.0
     L = 1.0
-    n_downsample, n_trial = 4, 2
-    cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial)
+    cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial, nt+1)
     sol = []
     for downsample = 0:n_downsample-1 
         stride = 2^downsample
@@ -208,10 +207,11 @@ function cost_accuracy_traditional_solver()
             
             
             
-            rel_error = norm(zeta_data - zeta_data_ref)/norm(zeta_data_ref)
+            
             cost_cpu_time = end_time - start_time
             cost[downsample+1, i, :] .=  [nt*Tsaves/(dt*stride)*(100*ne*log2(ne) + 184*ne), cost_cpu_time]            
-            accuracy[downsample+1, i] = rel_error
+            rel_error = [norm(zeta_data[j,:,:] - zeta_data_ref[j,:,:])/norm(zeta_data_ref[j,:,:]) for j = 1:nt+1]
+            accuracy[downsample+1, i, :] = rel_error
             print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time, "\n")
 
             if i == 1 # save data
@@ -220,17 +220,43 @@ function cost_accuracy_traditional_solver()
         end
     end
 
+
+
+    return  cost, accuracy, sol 
+
+end
+
+
+function cost_accuracy_traditional_solver(;n_downsample, n_trial)
+    """
+    Traditional solver error .
+    """
+    nt = 50
+    # load reference solution
+    # floating point cost, CPU, GPU
+    cost, accuracy = zeros(n_downsample, n_trial, 3), zeros(n_downsample, n_trial, 2, nt+1)
+    
+
+    
+    for device in ["cpu", "gpu"]
+        cost_ds, accuracy_ds, sol_ds =  cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
+        cost[:, :, 1] = cost_ds[:,:,1]
+        if device == "cpu"
+            cost[:, :, 2] = cost_ds[:,:,2]
+            accuracy[:, :, 1, :] = accuracy_ds 
+        else
+            cost[:, :, 3] = cost_ds[:,:,2]
+            accuracy[:, :, 2, :] = accuracy_ds 
+        end
+    end
+
     save_data = Dict{String, Any}()
     save_data["cost"] = cost
     save_data["accuracy"] = accuracy
-    save_data["sol_length"] = n_downsample
-    for i = 0:n_downsample-1
-        save_data["sol_$i"] = sol[i+1]
-    end
 
-    NPZ.npzwrite("cost_accuracy_traditional_solver_data.npz", save_data)
+    NPZ.npzwrite("data/cost_accuracy_traditional_solver_data.npz", save_data)
     
-    return  cost, accuracy, sol 
+    return  cost, accuracy
 
 end
 
@@ -238,4 +264,4 @@ end
 
 # taylor_green_vortex_test()
 # generate_data(nx = 256, ny = 256, ndata = 2000)
-cost_accuracy_traditional_solver()
+cost_accuracy_traditional_solver(n_downsample=4, n_trial=2)

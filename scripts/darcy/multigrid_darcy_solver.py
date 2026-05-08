@@ -4,6 +4,7 @@ import time
 import numpy as np
 from firedrake import *
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 import gc
 
 
@@ -166,12 +167,17 @@ def solve_darcy_equation(nx, ny, hierarchy_level, kappa, f, solver_parameters = 
     # 5. Solve with multigrid preconditioner
     # ------------------------------------------------------------------
     # Start timing
-    start_time = time.perf_counter()
-    
+    # TODO warm up the solver, update cache
     solve(a == L, uh, bcs=bc, solver_parameters=solver_parameters)
-    
+    n_repeat = 10
+    start_time = time.perf_counter()
+    for i in range(n_repeat):
+        uh.assign(0) 
+        solve(a == L, uh, bcs=bc, solver_parameters=solver_parameters)
     end_time = time.perf_counter()
-    solve_time = end_time - start_time
+    
+    
+    solve_time = (end_time - start_time)/n_repeat
     print(f"Solve time for {nx}x{ny} mesh: {solve_time:.4f} seconds")
     
     return uh, V, solve_time
@@ -256,7 +262,7 @@ def test_darcy_equation():
         im = axs[3].pcolormesh(x, y, u_exact_data)
         axs[3].set_title("u (reference)");axs[3].set_aspect('equal')
         fig.colorbar(im, ax=axs[3])
-        fig.savefig(f"Darcy_flow_{nx}_{ny}.png")
+        fig.savefig(f"figs/Darcy_flow_{nx}_{ny}.png")
         
 
 
@@ -329,7 +335,7 @@ def visualize_data():
     im = axs[2].pcolormesh(x, y, u_data)
     axs[2].set_title("u (predicted)");axs[2].set_aspect('equal')
     fig.colorbar(im, ax=axs[2])
-    fig.savefig(f"Darcy_flow_{i}.png")
+    fig.savefig(f"figs/Darcy_flow_{i}.png")
     
     
     
@@ -339,11 +345,13 @@ def cost_accuracy_traditional_solver():
     """
     # load reference solution
     
-    m_iteration = 20  # number of multigrid v cycle iterations
+    m_iteration = 15  # number of multigrid v cycle iterations
     nu_iteration = 2  # number of smoothing per multigrid v cycle iteration
     
     solver_parameters_mg = {
         "ksp_type": "richardson",
+        "ksp_max_it": m_iteration,
+        "ksp_rtol": 1.0e-6,
         "pc_type": "mg",
         "pc_mg_type": "multiplicative",
         "pc_mg_cycle_type": "v",
@@ -362,8 +370,10 @@ def cost_accuracy_traditional_solver():
     cost, accuracy = np.zeros((n_downsample, n_trial, 2)), np.zeros((n_downsample, n_trial))
     sol = []
     for downsample in range(6):
-        for i in range(10):
-            data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
+        
+        for i in range(n_trial):
+            # TODO there are in total 10000 data
+            data = np.load(f"../../data/darcy/darcy_data_{(9999-i):05d}.npy")
             print(data.shape)
             # data : n by n by 2 array. 
             # kappa, u
@@ -384,66 +394,18 @@ def cost_accuracy_traditional_solver():
             accuracy[downsample, i] = rel_error
             print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time)
 
-            if i == 0: # save data
+            if i == 0: # save the last data data
                 sol.append(np.stack([kappa_data, u_ref, u_data], axis=2))
     
-    np.savez_compressed('cost_accuracy_traditional_solver_data.npz', cost=cost, accuracy=accuracy, sol=np.array(sol, dtype=object))
+    np.savez_compressed('data/cost_accuracy_traditional_solver_data.npz', cost=cost, accuracy=accuracy, sol=np.array(sol, dtype=object))
 
     return  cost, accuracy, sol 
 
-def cost_accuracy_plot():
-    cost_accuracy_traditional_solver_data = np.load('cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
-    cost = cost_accuracy_traditional_solver_data['cost']
-    accuracy = cost_accuracy_traditional_solver_data['accuracy']
-    sol = cost_accuracy_traditional_solver_data['sol'].tolist()   # list of [kappa_data, u_ref, u_data]
 
-    ngrid, _, _ = sol[0].shape
-    
-    fig, axs = plt.subplots(2, 4, figsize=(16, 6))
-    x, y = np.meshgrid(np.linspace(0,1,ngrid), np.linspace(0,1,ngrid), indexing='ij')
-    im = axs[0,0].pcolormesh(x, y, sol[0][...,1], shading = "gouraud") # u_ref
-    fig.colorbar(im, ax=axs[0,0])
-    axs[0,0].set_title(fr'$u ({ngrid-1} \times {ngrid-1})$')
-    im = axs[1,0].pcolormesh(x, y, sol[0][...,0], shading = "gouraud") # kappa_ref
-    fig.colorbar(im, ax=axs[1,0])
-    axs[1,0].set_title(r'$\kappa$')
-    for downsample in range(1,4):
-        stride = 2**downsample
-        im = axs[0,downsample].pcolormesh(x[0::stride, 0::stride], y[0::stride, 0::stride], sol[downsample][...,2], shading = "gouraud") # u_ref
-        fig.colorbar(im, ax=axs[0,downsample])
-        axs[0,downsample].set_title(fr'$u ({(ngrid-1)//stride} \times {(ngrid-1)//stride})$')
-        im = axs[1,downsample].pcolormesh(x[0::stride, 0::stride], y[0::stride, 0::stride], np.fabs(sol[downsample][...,2] - sol[downsample][...,1]), shading = "gouraud") # kappa_ref
-        fig.colorbar(im, ax=axs[1,downsample])
-        axs[1,downsample].set_title('Error')
-    fig.tight_layout()
-    fig.savefig("solution_traditional_solver.pdf")    
-    
-    
-    
-    
-    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-    
-    mean_cost = np.mean(cost, axis=1)     
-    mean_accuracy = np.mean(accuracy, axis=1)    
-    std_cost  = np.std(cost, axis=1, ddof=1)       
-    std_accuracy  = np.std(accuracy, axis=1, ddof=1)
-
-    axs[0].loglog(mean_accuracy, mean_cost[...,0], 'o-')
-    axs[0].errorbar(mean_accuracy, mean_cost[...,0], xerr=std_accuracy, fmt='o')
-    axs[0].set_xlabel("Rel. error")
-    axs[0].set_ylabel("Floating-point cost")
-    axs[1].loglog(mean_accuracy, mean_cost[...,1], 'o-')
-    axs[1].errorbar(mean_accuracy, mean_cost[...,1], xerr=std_accuracy, yerr=std_cost[...,1], fmt='o')
-    axs[1].set_xlabel("Rel. error")
-    axs[1].set_ylabel("CPU cost (s)")
-
-    fig.tight_layout()
-    fig.savefig("cost_accuracy_traditional_solver.pdf")    
-        
 # Example usage
 if __name__ == "__main__":
     # test_darcy_equation()
     # generate_data()
     # visualize_data()
-    # cost_accuracy_traditional_solver()
-    cost_accuracy_plot()
+    cost_accuracy_traditional_solver()
+    

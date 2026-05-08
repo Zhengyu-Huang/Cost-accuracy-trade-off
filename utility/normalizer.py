@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from typing import Dict, Any
+
 
 class UnitGaussianNormalizer(object):
     '''
@@ -88,6 +90,7 @@ class UnitGaussianNormalizer(object):
         std = self.std + self.eps 
         mean = self.mean
         y = x if inplace else x.clone()
+    
         y[...,0:x.shape[-1] - self.non_normalized_dim] = (x[...,0:x.shape[-1]-self.non_normalized_dim] - mean) / std
         return y
     
@@ -142,5 +145,79 @@ class UnitGaussianNormalizer(object):
         """
         self.mean = self.mean.to(device)
         self.std = self.std.to(device)
+        return self
         
 
+    def state_dict(self) -> Dict[str, Any]:
+        """
+        Return a serializable state dictionary.
+
+        This allows the normalizer to be saved with torch.save(), for example:
+
+            torch.save(normalizer.state_dict(), "normalizer.pth")
+
+        The saved state contains only normalization statistics and metadata,
+        not the original training data.
+        """
+        return {
+            "non_normalized_dim": self.non_normalized_dim,
+            "mean": self.mean.detach().cpu(),
+            "std": self.std.detach().cpu(),
+            "eps": self.eps,
+        }
+        
+        
+        
+    def load_state_dict(self,state_dict: Dict[str, Any]):
+        """
+        Load normalization statistics from a state dictionary.
+
+        Parameters
+        ----------
+        state_dict : dict
+            State dictionary produced by self.state_dict().
+
+        Returns
+        -------
+        UnitGaussianNormalizer
+            Returns self.
+        """
+        self.non_normalized_dim = state_dict["non_normalized_dim"]
+        self.mean = state_dict["mean"]
+        self.std = state_dict["std"]
+        self.eps = state_dict["eps"]
+
+        return self
+    
+    
+    @classmethod
+    def from_state_dict(cls, state_dict: Dict[str, Any], device=None):
+        """
+        Create a normalizer directly from a saved state dictionary.
+
+        This is useful at inference time, when the original training data is not
+        available.
+
+        Example
+        -------
+            state = torch.load("model_normalization_x.pth", map_location="cpu")
+            normalizer = UnitGaussianNormalizer.from_state_dict(state)
+        """
+        obj = cls.__new__(cls)
+        obj.load_state_dict(state_dict)
+        
+        if device is not None:
+            obj.to(device)
+        return obj
+
+    def __repr__(self) -> str:
+        """
+        Return a readable string representation.
+        """
+        return (
+            f"{self.__class__.__name__}("
+            f"non_normalized_dim={self.non_normalized_dim}, "
+            f"mean={self.mean}, "
+            f"std={self.std}, "
+            f"eps={self.eps})"
+        )
