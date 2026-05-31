@@ -95,7 +95,7 @@ def preprocess_data(n_train, n_test, nt, downsample, n_roll_out = 1):
     return x_train, y_train, x_test, y_test, dx1, dx2
 
 
-def load_test_data(n_test_file, nt, downsample):
+def load_test_data(test_data_indices, nt, downsample):
     """
     Preprocess Navier‑Stokes simulation data for testing.
 
@@ -104,7 +104,7 @@ def load_test_data(n_test_file, nt, downsample):
     the required files, optionally downsamples the spatial grid, for roll-out test
 
     Parameters:
-        n_test_file (int): Number of testing filess to extract.
+        test_data_indices (list of int): testing file indices.
         downsample (int): Downsampling factor (2**downsample). Default 1 => no downsampling.
         
     Returns:
@@ -133,7 +133,7 @@ def load_test_data(n_test_file, nt, downsample):
     in_dim = 4
     x_test = []
     
-    for i in [n_file + x for x in range(-n_test_file, 0)]:
+    for i in test_data_indices:
         X = np.zeros((nt+1, n, n, in_dim))
         data_file_name = f"../../data/navier_stokes/navier_stokes_{i:05d}.npy"
         data = np.load(data_file_name)
@@ -170,6 +170,8 @@ if __name__ == "__main__":
     parser.add_argument('--n_layer', type=int, default=6)
     parser.add_argument('--df', type=int, default=64)
     parser.add_argument('--downsample', type=int, default=1)
+    parser.add_argument('--n_roll_out', type=int, default=2)
+
     args = parser.parse_args()
 
     k_max = args.k_max
@@ -177,15 +179,18 @@ if __name__ == "__main__":
     n_layer = args.n_layer
     df = args.df
     downsample = args.downsample
+    n_roll_out = args.n_roll_out
 
     save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+    if n_roll_out != 2:
+        save_model_name += f"_nrollout{n_roll_out}"
+
     print("save_model_name = ", save_model_name )
     
     
     in_dim, out_dim = 4, 1
     n_test = 1000
     nt = 50
-    n_roll_out = 2
     x_train, y_train, x_test, y_test, dx1, dx2 = preprocess_data(n_train, n_test, nt, downsample, n_roll_out = n_roll_out)
 
 

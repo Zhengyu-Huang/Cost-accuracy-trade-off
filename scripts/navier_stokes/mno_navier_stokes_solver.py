@@ -63,24 +63,25 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
     if normalization_y:
         y_normalizer.to(device)
 
-    x = torch.from_numpy(x.astype(np.float32)).to(device)
-    
-    # Initialize prediction array: (batch, time, nx, ny, out_dim)
-    y_pred = torch.zeros((batch_size, nt+1, nx, ny, out_dim), device=device)
+    with torch.no_grad():
+        x = torch.from_numpy(x.astype(np.float32)).to(device)
+        
+        # Initialize prediction array: (batch, time, nx, ny, out_dim)
+        y_pred = torch.zeros((batch_size, nt+1, nx, ny, out_dim), device=device)
 
-    # initialize solution at 0
-    y_pred[:, 0, ...] = x[... , :out_dim].clone()
-    
-    start_time = time.perf_counter()
-    for i in range(nt):
-        x[..., :out_dim] = y_pred[:, i ,...]
-        y_pred[:, i+1 ,...] =  model( x = (x_normalizer.encode(x) if normalization_x else x) ) 
-        if normalization_y:
-            y_pred[:, i+1, ...] = y_normalizer.decode(y_pred[:, i+1, ...])
-    end_time = time.perf_counter()        
-    
-    y_pred = y_pred.detach().cpu().numpy()
-    solve_time = end_time - start_time
+        # initialize solution at 0
+        y_pred[:, 0, ...] = x[... , :out_dim].clone()
+        
+        start_time = time.perf_counter()
+        for i in range(nt):
+            x[..., :out_dim] = y_pred[:, i ,...]
+            y_pred[:, i+1 ,...] =  model( x = (x_normalizer.encode(x) if normalization_x else x) ) 
+            if normalization_y:
+                y_pred[:, i+1, ...] = y_normalizer.decode(y_pred[:, i+1, ...])
+        end_time = time.perf_counter()        
+        
+        y_pred = y_pred.detach().cpu().numpy()
+        solve_time = end_time - start_time
 
     return y_pred, solve_time
 
@@ -104,7 +105,7 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
           
     # x_test is [batch_size , nt+1 , nx , ny , 4]
     batch_size = 5
-    x_test, dx1, dx2 = load_test_data(batch_size, nt, downsample)
+    x_test, dx1, dx2 = load_test_data(np.arange(2000-batch_size, 2000), nt, downsample)
 
     
     y_ref = x_test[...,:out_dim] #[batch_size , nt+1 , nx , ny , out_dim] 
@@ -127,7 +128,6 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
     
     
     ################### Postprocessing ######################
-    print(y_pred.shape, y_ref.shape)
     error = np.zeros((batch_size, nt+1))
     rel_error = np.zeros((batch_size, nt+1))
     for bs in range(batch_size):
@@ -164,6 +164,55 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
     plt.savefig("figs/MNO_prediction.png")
 
 
+def mno_solver(test_index, downsample):
+    """
+    Neural operator solver.
+    """
+    # load reference solution
+    nt = 50
+    nx = ny = 256
+    L = 1.0
+    nx, ny = nx//(2**downsample), ny//(2**downsample)
+    dim, in_dim, out_dim = 2, 4, 1
+
+    n_train = 10000
+    k_max = 16  
+    n_layer = 4 
+    df = 64
+    
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+          
+          
+    # x_test is [batch_size , nt+1 , nx , ny , 4]
+    x_test, dx1, dx2 = load_test_data([test_index], nt, downsample)
+
+    
+    y_ref = x_test[...,:out_dim] #[batch_size , nt+1 , nx , ny , out_dim] 
+    
+
+    
+    model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0, incremental = True, checkpoint_path=checkpoint_path+".pth")
+    model = model.to(device)
+    
+    normalization_x = False
+    normalization_y = False
+    
+    x_normalizer = UnitGaussianNormalizer.from_state_dict(torch.load(checkpoint_path + "_normalization_x.pth", map_location="cpu", weights_only=True,), device=device) if normalization_x else None
+    y_normalizer = UnitGaussianNormalizer.from_state_dict(torch.load(checkpoint_path + "_normalization_y.pth", map_location="cpu", weights_only=True,), device=device) if normalization_y else None
+        
+
+    x = x_test[:, 0,...] #[batch_size , nx , ny , in_dim] 
+    
+    y_pred, _ = mno_solve(model, x_normalizer, y_normalizer, x, nt, device)
+    y_pred = y_pred[0,...,0]
+    
+    
+    np.savez_compressed('data/mno_solver_data.npz', sol=y_pred)
+    
+    return
+
+
 
 
 def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial):
@@ -183,11 +232,8 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
     
     dim, in_dim, out_dim = 2, 4, 1
     
-    x_test, dx1, dx2 = load_test_data(n_trial, nt, downsample)
+    x_test, dx1, dx2 = load_test_data(np.arange(2000-n_trial, 2000), nt, downsample)
 
-    
-    normalization_x = False
-    normalization_y = False
     x_normalizer, y_normalizer = None, None 
 
     
@@ -199,15 +245,15 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                 checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
                 # checkpoint_path = f"models/MNO_model_N4000_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}.pth"
     
-                model = setup_model(in_dim=in_dim, out_dim=out_dim, k_max=k_max, n_layer=n_layer, df=df, dx1=dx1, dx2=dx2, dx_scale=10.0, device=device, checkpoint_path=checkpoint_path)
+                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0, incremental = True, checkpoint_path=checkpoint_path+".pth")
                 model = model.to(device)
 
+                
                 for i in range(n_trial):
-                    x = x_test[[i], 0, ...]            #[batch_size , nx , ny , in_dim] 
-                    y_ref = x_test[[i], ..., :out_dim] #[batch_size , nt+1 , nx , ny , out_dim]
+                    x = x_test[[i], 0, ...]             #[batch_size , nx , ny , in_dim] 
+                    y_ref = x_test[[i], ..., :out_dim]  #[batch_size , nt+1 , nx , ny , out_dim]
                     # Warm up
                     y_pred, sol_time = mno_solve(model, x_normalizer, y_normalizer, x, nt, device)
-                    
                     sol_time_ave = 0
                     for j in range(n_repeat):
                         y_pred, sol_time = mno_solve(model, x_normalizer, y_normalizer, x, nt, device)
@@ -216,9 +262,9 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                     
                     error = np.zeros(nt+1)
                     rel_error = np.zeros(nt+1)
-                    for i in range(nt+1):
-                        error[i] = np.linalg.norm(y_ref[i,...] - y_pred[i,...]) * np.sqrt(dx1*dx2)
-                        rel_error[i] = np.linalg.norm(y_ref[i,...] - y_pred[i,...])/(np.linalg.norm(y_ref[i,:]))
+                    for j in range(nt+1):
+                        error[j] = np.linalg.norm(y_ref[0, j,...] - y_pred[0, j,...]) * np.sqrt(dx1*dx2)
+                        rel_error[j] = np.linalg.norm(y_ref[0, j,...] - y_pred[0, j,...])/(np.linalg.norm(y_ref[0, j,:]))
 
                     cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, mesh_type="structured")
                     cost[k_max_index, n_layer_index, df_index, i, 1] = sol_time_ave
@@ -233,12 +279,12 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
 
 
 def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df_values, n_train, n_trial = 10):
+    nt = 50
     cost     = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3))
     accuracy = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2, nt+1))
     
     for downsample_index, downsample in enumerate(downsample_values):
         for device in [torch.device('cuda') , torch.device('cpu')]:
-        # for device in [torch.device('cuda') , torch.device('cpu')]:
             cost_ds, accuracy_ds = cost_accuracy_mno_solver_helper(device, downsample, k_max_values = k_max_values, n_layer_values = n_layer_values, df_values = df_values, n_train = n_train, n_trial = n_trial)
             cost[downsample_index, :, :, :, :, 0] = cost_ds[...,0]
             if device.type == 'cpu':
@@ -254,14 +300,59 @@ def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df
 
     return  cost, accuracy 
 
+
+
+def accuracy_mno_solver(nrollouts, n_trial):
+    nt = 50
+    dim, in_dim, out_dim, k_max, n_layer, df, downsample = 2, 4, 1, 16, 6, 64, 1
+    x_test, dx1, dx2 = load_test_data(np.arange(2000-n_trial, 2000), nt, downsample)
+    x_normalizer, y_normalizer = None, None 
+    device = torch.device('cpu')
+    accuracy = np.zeros((len(nrollouts), n_trial, nt+1))
+    n_repeat = 10
+    
+    for nrollout_index, nrollout in enumerate(nrollouts):
+        checkpoint_path = f"models/MNO_model_N10000_k{k_max}_nlayer{n_layer}_df{df}_downsample1_nrollout{nrollout}"    
+        model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0, incremental = True, checkpoint_path=checkpoint_path+".pth")
+        model = model.to(device)
+    
+        for i in range(n_trial):
+            x = x_test[[i], 0, ...]             #[batch_size , nx ,   ny , in_dim] 
+            y_ref = x_test[[i], ..., :out_dim]  #[batch_size , nt+1 , nx , ny , out_dim]
+            # Warm up
+            y_pred, sol_time = mno_solve(model, x_normalizer, y_normalizer, x, nt, device)
+            sol_time_ave = 0
+            for j in range(n_repeat):
+                y_pred, sol_time = mno_solve(model, x_normalizer, y_normalizer, x, nt, device)
+                sol_time_ave += sol_time
+            sol_time_ave /= n_repeat
+            
+            error = np.zeros(nt+1)
+            rel_error = np.zeros(nt+1)
+            for j in range(nt+1):
+                error[j] = np.linalg.norm(y_ref[0, j,...] - y_pred[0, j,...]) * np.sqrt(dx1*dx2)
+                rel_error[j] = np.linalg.norm(y_ref[0, j,...] - y_pred[0, j,...])/(np.linalg.norm(y_ref[0, j,:]))
+
+            accuracy[nrollout_index, i,:] = rel_error
+                    
+            print("nrollout = ", nrollout, " relative error is : ", rel_error)
+               
+    np.savez_compressed('data/accuracy_mno_solver_nrollout_data.npz', accuracy=accuracy)
+
+    return  accuracy 
+
+
 if __name__ == "__main__":
     
     
     ###################################
     # load parameters
     ###################################
+    # mno_solve_visualize(n_layer=5, df=64, downsample=1, k_max=16, n_train=10000)
 
-    # cost, accuracy, sol  = cost_accuracy_mno_solver(downsample_values = [2, 3], k_max_values = [16, 32], n_layer_values = [4, 5], df_values = [32, 64, 128])
-    # cost, accuracy, sol  = cost_accuracy_mno_solver(downsample_values = [2], k_max_values = [16], n_layer_values = [5], df_values = [128])
+    cost, accuracy = cost_accuracy_mno_solver(downsample_values = [1,2,3], k_max_values = [16], n_layer_values = [4,5,6], df_values = [64], n_train=10000,  n_trial=100)
+    # mno_solver(test_index=1999, downsample=1)
+
+    # accuracy = accuracy_mno_solver(nrollouts = [1,2,3], n_trial = 10)
     
-    mno_solve_visualize(n_layer=6, df=64, downsample=1, k_max=16, n_train=10000)
+    

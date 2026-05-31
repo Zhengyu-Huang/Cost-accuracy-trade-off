@@ -44,46 +44,6 @@ def _get_act(act):
     return func
 
 
-def scaled_sigmoid(x: torch.Tensor, min_val: float, max_val: float) -> torch.Tensor:
-    """
-    Applies a sigmoid function scaled to output values in the range [min_val, max_val].
-    This transformation maps any real-valued input to a specified bounded interval,
-    maintaining gradient flow for backpropagation. Useful for constraining network outputs.
-    
-    Math:
-        output = min_val + (max_val - min_val) * σ(x)
-        where σ(x) = 1/(1 + exp(-x)) is the standard sigmoid function
-    
-    Require:
-        max_val >= min_val
-    """
-    return min_val + (max_val - min_val) * torch.sigmoid(x)
-
-
-def scaled_logit(y: torch.Tensor, min_val: float, max_val: float) -> torch.Tensor:
-    """
-    Inverse of scaled_sigmoid - maps values from [min_val, max_val] back to unbounded space.
-    
-    Also known as the generalized logit transform. Handles numerical stability at boundaries.
-    
-    Args:
-        y: Input tensor (values must be in (min_val, max_val) range)
-        min_val: Lower bound of input range (exclusive)
-        max_val: Upper bound of input range (exclusive)
-        
-    Returns:
-        Tensor of same shape as input with unbounded real values
-    
-    Math:
-        output = log( (y - min_val) / (max_val - y) )
-        This is the inverse operation of scaled_sigmoid()
-  
-    Require:
-        min_val < y <  max_val
-    """
-    return torch.log((y - min_val)/(max_val - y))
-
-
 def compute_Fourier_modes_helper(ndims, nks, Ls):
     '''
     Compute Fourier modes number k
@@ -150,21 +110,20 @@ def compute_Fourier_modes_helper(ndims, nks, Ls):
 
 def compute_Fourier_modes(ndims, nks, Ls):
     '''
-    Compute `nmeasures` sets of Fourier modes number k
+    Compute Fourier modes number k
     Fourier bases are cos(kx), sin(kx), 1
     * We cannot have both k and -k
 
         Parameters:  
             ndims : int
-            nks   : int[ndims * nmeasures]
-            Ls    : float[ndims * nmeasures]
+            nks   : int[ndims]
+            Ls    : float[ndims]
 
         Return :
-            k_pairs : float[nmodes, ndims, nmeasures]
+            k_pairs : float[nmodes, ndims]
     '''
     assert(len(nks) == len(Ls))
-    nmeasures = len(nks) // ndims
-    k_pairs = np.stack([compute_Fourier_modes_helper(ndims, nks[i*ndims:(i+1)*ndims], Ls[i*ndims:(i+1)*ndims]) for i in range(nmeasures)], axis=-1)
+    k_pairs = compute_Fourier_modes_helper(ndims, nks, Ls)
     
     return k_pairs
 
@@ -176,20 +135,22 @@ def compute_Fourier_bases(nodes, modes):
 
         Parameters:  
             nodes        : float[batch_size, nnodes, ndims]
-            modes        : float[nmodes, ndims, nmeasures]
+            modes        : float[nmodes, ndims]
             
         Return :
-            bases_c, bases_s : float[batch_size, nnodes, nmodes, nmeasures]
-            bases_0 : float[batch_size, nnodes, 1, nmeasures]
+            bases : float[batch_size, nnodes, nbases]   bases_c, bases_s, bases_0
+            
     '''
-    # temp : float[batch_size, nnodes, nmodes, nmeasures]
-    temp  = torch.einsum("bxd,kdw->bxkw", nodes, modes) 
+    # temp : float[batch_size, nnodes, nmodes]
+    temp  = torch.einsum("bxd,kd->bxk", nodes, modes) 
     
     bases_c = torch.cos(temp) 
     bases_s = torch.sin(temp) 
-    batch_size, nnodes, _, nmeasures = temp.shape
-    bases_0 = torch.ones(batch_size, nnodes, 1, nmeasures, dtype=temp.dtype, device=temp.device)
-    return bases_c, bases_s, bases_0
+    batch_size, nnodes, _ = temp.shape
+    bases_0 = torch.ones(batch_size, nnodes, 1, dtype=temp.dtype, device=temp.device)
+    bases = torch.cat((bases_c, bases_s, bases_0), dim=-1)
+    return bases
+
 
 ################################################################
 # Fourier layer
@@ -199,57 +160,108 @@ class SpectralConv(nn.Module):
         super(SpectralConv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        nmodes, ndims, nmeasures = modes.shape
+        nmodes, _ = modes.shape
+        self.nmodes = nmodes
         self.modes = modes
-        self.nmeasures = nmeasures
         self.scale = 1 / (in_channels * out_channels)
 
         self.weights_c = nn.Parameter(
             self.scale
             * torch.rand(
-                in_channels, out_channels, nmodes, nmeasures, dtype=torch.float
+                in_channels, out_channels, nmodes, dtype=torch.float
             )
         )
         self.weights_s = nn.Parameter(
             self.scale
             * torch.rand(
-                in_channels, out_channels, nmodes, nmeasures, dtype=torch.float
+                in_channels, out_channels, nmodes, dtype=torch.float
             )
         )
         self.weights_0 = nn.Parameter(
             self.scale
             * torch.rand(
-                in_channels, out_channels, 1, nmeasures, dtype=torch.float
+                in_channels, out_channels, 1, dtype=torch.float
             )
         )
 
 
-    def forward(self, x, bases_c, bases_s, bases_0, wbases_c, wbases_s, wbases_0):
+    def forward_separate(self, x, bases_c, bases_s, bases_0, wbases_c, wbases_s, wbases_0):
         '''
         Compute Fourier neural layer
             Parameters:  
                 x                   : float[batch_size, in_channels, nnodes]
-                bases_c, bases_s    : float[batch_size, nnodes, nmodes, nmeasures]
-                bases_0             : float[batch_size, nnodes, 1, nmeasures]
-                wbases_c, wbases_s  : float[batch_size, nnodes, nmodes, nmeasures]
-                wbases_0            : float[batch_size, nnodes, 1, nmeasures]
+                bases_c, bases_s    : float[batch_size, nnodes, nmodes]
+                bases_0             : float[batch_size, nnodes, 1]
+                wbases_c, wbases_s  : float[batch_size, nnodes, nmodes]
+                wbases_0            : float[batch_size, nnodes, 1]
 
             Return :
                 x                   : float[batch_size, out_channels, nnodes]
         '''    
-        x_c_hat =  torch.einsum("bix,bxkw->bikw", x, wbases_c)
-        x_s_hat = -torch.einsum("bix,bxkw->bikw", x, wbases_s)
-        x_0_hat =  torch.einsum("bix,bxkw->bikw", x, wbases_0)
+        x_c_hat =  torch.einsum("bix,bxk->bik", x, wbases_c)
+        x_s_hat = -torch.einsum("bix,bxk->bik", x, wbases_s)
+        x_0_hat =  torch.einsum("bix,bxk->bik", x, wbases_0)
 
         weights_c, weights_s, weights_0 = self.weights_c, self.weights_s, self.weights_0
         
-        f_c_hat = torch.einsum("bikw,iokw->bokw", x_c_hat, weights_c) - torch.einsum("bikw,iokw->bokw", x_s_hat, weights_s)
-        f_s_hat = torch.einsum("bikw,iokw->bokw", x_s_hat, weights_c) + torch.einsum("bikw,iokw->bokw", x_c_hat, weights_s)
-        f_0_hat = torch.einsum("bikw,iokw->bokw", x_0_hat, weights_0) 
+        f_c_hat = torch.einsum("bik,iok->bok", x_c_hat, weights_c) - torch.einsum("bik,iokw->bok", x_s_hat, weights_s)
+        f_s_hat = torch.einsum("bik,iok->bok", x_s_hat, weights_c) + torch.einsum("bik,iokw->bok", x_c_hat, weights_s)
+        f_0_hat = torch.einsum("bik,iok->bok", x_0_hat, weights_0) 
 
-        x = torch.einsum("bokw,bxkw->box", f_0_hat, bases_0)  + 2*torch.einsum("bokw,bxkw->box", f_c_hat, bases_c) -  2*torch.einsum("bokw,bxkw->box", f_s_hat, bases_s) 
+        x = torch.einsum("bok,bxk->box", f_0_hat, bases_0) + 2*torch.einsum("bok,bxk->box", f_c_hat, bases_c) - 2*torch.einsum("bok,bxk->box", f_s_hat, bases_s) 
         
         return x
+    
+
+    def forward(self, x, bases, wbases):
+        '''
+        Compute Fourier neural layer
+            Parameters:  
+                x                   : float[batch_size, in_channels, nnodes]
+                bases               : float[batch_size, nnodes, nbases]
+                wbases              : float[batch_size, nnodes, nbases]
+
+            Return :
+                x                   : float[batch_size, out_channels, nnodes]
+        ''' 
+        batch_size, in_channels, nnodes = x.shape
+        out_channels, nmodes = self.out_channels, self.nmodes
+
+        # ------------------------------------------------------------
+        # Fused forward DFT
+        # ------------------------------------------------------------
+        x_hat = torch.bmm(x, wbases)  # (batch_size, in_channels, nbases)
+
+        x_c_hat =  x_hat[:, :, :nmodes] 
+        x_s_hat = -x_hat[:, :, nmodes:2 * nmodes] 
+        x_0_hat =  x_hat[:, :, 2 * nmodes:] 
+
+        weights_c, weights_s, weights_0 = self.weights_c, self.weights_s, self.weights_0
+
+        # ------------------------------------------------------------
+        # Channel mixing
+        # ------------------------------------------------------------
+        f_c_hat = torch.einsum("bik,iok->bok", x_c_hat, weights_c) - torch.einsum("bik,iok->bok", x_s_hat, weights_s)
+        f_s_hat = torch.einsum("bik,iok->bok", x_s_hat, weights_c) + torch.einsum("bik,iok->bok", x_c_hat, weights_s)
+        f_0_hat = torch.einsum("bik,iok->bok", x_0_hat, weights_0)
+
+        # ------------------------------------------------------------
+        # Fused inverse DFT
+        # 
+        #  out = f0*b0 + 2*fc*bc - 2*fs*bs
+        # ------------------------------------------------------------
+        f_hat = torch.cat(
+            [
+                 2.0 * f_c_hat.reshape(batch_size, out_channels, nmodes),
+                -2.0 * f_s_hat.reshape(batch_size, out_channels, nmodes),
+                 f_0_hat.reshape(batch_size, out_channels, 1),
+            ],
+            dim=-1,
+        )  # (batch_size, out_channels, nbases)
+
+        out = torch.bmm(f_hat, bases.transpose(1, 2))
+
+        return out
     
 
 def compute_gradient(f, directed_edges, edge_gradient_weights):
@@ -301,20 +313,83 @@ def compute_gradient(f, directed_edges, edge_gradient_weights):
     f_gradients.scatter_add_(dim=1, src=message, index=target.unsqueeze(2).repeat(1,1,in_channels*ndims))
     
     return f_gradients.permute(0,2,1)
+
+
+
+def graph_neighbor_average(
+    x: torch.Tensor,
+    directed_edges: torch.Tensor,
+    iterations: int = 1,
+) -> torch.Tensor:
+    """
+    Repeated self-plus-neighbor averaging on a directed graph.
+
+    Each iteration applies
+        y_i <- (y_i + sum_{j in N(i)} y_j) / (1 + deg(i)),
+    where N(i) is the set of source neighbors of target node i.
+
+    Parameters
+    ----------
+    x : Tensor[batch_size, channels, nnodes]
+        Input node features.
+
+    directed_edges : int Tensor[batch_size, max_nedges, 2]
+        directed_edges[..., 0] = target node
+        directed_edges[..., 1] = source neighbor
+
+    iterations : int, default=1
+        Number of averaging iterations.
+
+    Returns
+    -------
+    Tensor[batch_size, channels, nnodes]
+        Smoothed node features.
+
+    Notes
+    -----
+    This is a special case of graph smoothing with uniform weights and implicit self-inclusion.
+    """
+
+    x = x.permute(0, 2, 1)        # [B, N, C]
+    batch_size,  nnodes, in_channels =  x.shape
+    _, max_nedges, _ = directed_edges.shape
     
+    device,dtype = x.device, x.dtype
+    batch_index = torch.arange(batch_size, device=device).unsqueeze(1)
+    
+    target, source = directed_edges[..., 0], directed_edges[..., 1]  # [B, E]
+
+    # aggregate weights to targets
+    w = torch.ones(batch_size, max_nedges, 1, dtype=dtype, device=device)
+    deg = torch.ones(batch_size,  nnodes, 1, dtype=dtype, device=device)
+    deg.scatter_add_(dim=1, index=target.unsqueeze(-1), src=w,)
+
+
+    # aggregate weighted sum to targets
+    y = x.clone()
+
+    for _ in range(iterations):
+        # gather source features y[batch_index, source] and then scatter add: [B, E, C]
+        y.scatter_add_(dim=1, index=target.unsqueeze(-1).expand(-1, -1, in_channels), src=y[batch_index, source],)
+        y =  y / deg  # [B, N, C]
+
+    return y.permute(0, 2, 1)
+
+
+
 class GeoEmbedding(nn.Module):
     """
-        Short-range Kernel Integral Approximation.
-        
-        This module approximates a local integral operator where the kernel is 
-        determined by geometric descriptors. To ensure numerical stability in 
-        point cloud processing, it employs a constrained projection:
-        
-        Logic: Output = W_out( geo_act(W_geo * geo) * (W_x * x) )
-        
-        The geo_act serves as a bounded attenuation function to prevent numerical 
-        explosion during the element-wise interaction between geometry and features.
-        """
+    Short-range Kernel Integral Approximation.
+    
+    This module approximates a local integral operator where the kernel is 
+    determined by geometric descriptors. To ensure numerical stability in 
+    point cloud processing, it employs a constrained projection:
+    
+    Logic: Output = W_out( geo_act(W_geo * geo) * (W_x * x) )
+    
+    The geo_act serves as a bounded attenuation function to prevent numerical 
+    explosion during the element-wise interaction between geometry and features.
+    """
     def __init__(self, geo_channels, in_channels, out_channels, geo_act='softsign'):
         super(GeoEmbedding, self).__init__()
         self.geo_wx = nn.Conv1d(geo_channels, out_channels, 1, bias=False)
@@ -364,13 +439,11 @@ class MPCNO(nn.Module):
         self,
         ndims,
         modes,
-        nmeasures,
         layers,
-        layer_selection = {'grad': True, 'geo': True, 'geointegral': True},
+        layer_selection = {'grad': True, 'geo': False, 'geointegral': False},
         fc_dim=128,
         in_dim=3,
         out_dim=1,
-        inv_L_scale_hyper = ['independently', 0.5, 2.0],
         scaling_mode = 'inv',
         act="gelu",
         geo_act='softsign',
@@ -382,7 +455,7 @@ class MPCNO(nn.Module):
         1. Lift the input to the desire channel dimension by self.fc0 .
         2. len(layers)-1 layers of the point cloud neural layers u' = (W + K + D)(u).
            linear functions  W: parameterized by self.ws; 
-           integral operator K: parameterized by self.sp_convs with nmeasures different integrals
+           integral operator K: parameterized by self.sp_convs
            differential operator D: parameterized by self.grad_embs
         3. Project from the channel space to the output space by self.fc1 and self.fc2 .
         
@@ -390,13 +463,10 @@ class MPCNO(nn.Module):
             Parameters: 
                 ndims : int 
                     Dimensionality of the problem
-                modes : float[nmodes, ndims, nmeasures]
+                modes : float[nmodes, ndims]
                     It contains nmodes modes k, and Fourier bases include : cos(k x), sin(k x), 1  
                     * We cannot have both k and -k
                     * k is not integer, and it has the form 2pi*K/L0  (K in Z)
-                nmeasures : int
-                    Number of measures
-                    There might be different integrals with different measures
                 layers : list of int
                     number of channels of each layer
                     The lifting layer first lifts to layers[0]
@@ -410,6 +480,9 @@ class MPCNO(nn.Module):
                         'geo' (bool): If True, includes the short-range geometric embedding branch.
                         'geointegral' (bool): If True, enables geometry-aware weights in the spectral 
                                                 convolution to handle non-trivial domains.
+                    FNO:  set grad == False, geo == False, geointegral == False
+                    PCNO: set grad == True,  geo == False, geointegral == False
+
                 fc_dim : int 
                     hidden layers for the projection layer, when fc_dim > 0, otherwise there is no hidden layer
                 in_dim : int 
@@ -418,24 +491,7 @@ class MPCNO(nn.Module):
                 out_dim : int 
                     The number of channels for the output function
 
-                inv_L_scale_hyper: 3 element hyperparameter list
-                    Controls the update behavior of the length scale (L) for Fourier modes. The modes are scaled elementwise as:
-                    k = k * inv_L_scale (where each spatial direction or measure may be scaled differently).
-                    since k = 2pi K /L0, inv_L_scale is the inverse scale, 1/L = inv_L_scale * 1/L0 
-                    Hyperparameters: 
-                        train_inv_L_scale (bool or str): Update policy for inv_L_scale:
-                            False: Disable training (fixed scaling).
-                            'together': Train jointly with other parameters (shared optimizer).
-                            'independently': Train with a separate optimizer.
-
-                        inv_L_scale_min (float): Lower bound for scaling factor.
-
-                        inv_L_scale_max (float): Upper bound for scaling factor.
-
-                    Implementation Notes:
-                        The effective scaling factor is computed via a sigmoid constraint:
-                        inv_L_scale = inv_L_scale_min + (inv_L_scale_max - inv_L_scale_min) * sigmoid(inv_L_scale_latent)
-                        This ensures inv_L_scale stays within [inv_L_scale_min, inv_L_scale_max] during optimization.
+        
                 scaling_mode : string (default "inv")
                     Strategy to scale the combined output of multiple branches.
                     Options:
@@ -450,12 +506,11 @@ class MPCNO(nn.Module):
 
             
             Returns:
-                Point cloud neural operator
+                Multiscale point cloud neural operator
 
         """
         
         self.register_buffer('modes', modes) 
-        self.nmeasures = nmeasures
         
         self.layer_selection = layer_selection
         self.layers = layers
@@ -483,7 +538,7 @@ class MPCNO(nn.Module):
                 nn.Conv1d(out_size, out_size, 1, bias = False)
                 for in_size, out_size in zip(self.layers, self.layers[1:])
             ]
-        )
+        ) if layer_selection['geointegral'] else [None]*len(layers[1:])
                 
         # Cheap implementation for long-range spectral convolution layer with ny
         # Combine information with ny
@@ -538,10 +593,6 @@ class MPCNO(nn.Module):
             self.fc2 = nn.Linear(layers[-1], out_dim)
 
 
-        self.train_inv_L_scale, self.inv_L_scale_min, self.inv_L_scale_max  = inv_L_scale_hyper[0], inv_L_scale_hyper[1], inv_L_scale_hyper[2]
-        # latent variable for inv_L_scale = inv_L_scale_min + (inv_L_scale_max - inv_L_scale_min) * sigmoid(inv_L_scale_latent)
-        self.inv_L_scale_latent = nn.Parameter(torch.full((ndims, nmeasures), scaled_logit(torch.tensor(1.0), self.inv_L_scale_min, self.inv_L_scale_max)), requires_grad = bool(self.train_inv_L_scale))
-        
         
         num_branches = 2 
         if layer_selection['grad']: num_branches += 1
@@ -557,21 +608,6 @@ class MPCNO(nn.Module):
 
         self.act = _get_act(act)
 
-        self.normal_params = []  #  group of params which will be trained normally
-        self.inv_L_scale_params = []    #  group of params which may be trained specially
-        for _, param in self.named_parameters():
-            if param is not self.inv_L_scale_latent :
-                self.normal_params.append(param)
-            else:
-                if self.train_inv_L_scale == 'together':
-                    self.normal_params.append(param)
-                elif self.train_inv_L_scale == 'independently':
-                    self.inv_L_scale_params.append(param)
-                elif self.train_inv_L_scale == False:
-                    continue
-                else:
-                    raise ValueError(f"{self.train_inv_L_scale} is not supported")
-        
 
     def forward(self, x, aux):
         """
@@ -579,7 +615,7 @@ class MPCNO(nn.Module):
         1. Lift the input to the desire channel dimension by self.fc0 .
         2. len(layers)-1 layers of the point cloud neural layers u' = u + act((W + K + D + G)(u)).
            linear functions  W: parameterized by self.ws; 
-           integral operator K: parameterized by self.sp_convs with nmeasures different integrals
+           integral operator K: parameterized by self.sp_convs
            differential operator D: parameterized by self.grad_embs
            short-range geo layer G: parameterized by self.geo_embs
            
@@ -595,8 +631,8 @@ class MPCNO(nn.Module):
                     nodes : Tensor float[batch_size, max_nnomdes, ndim]  
                             nodal coordinate; padding with 0
 
-                    node_weights  : Tensor float[batch_size, max_nnomdes, nmeasures]  
-                                    rho(x)dx used for nmeasures integrations; padding with 0
+                    node_weights  : Tensor float[batch_size, max_nnomdes]  
+                                    rho(x)dx used for integrations; padding with 0
 
                     directed_edges : Tensor int[batch_size, max_nedges, 2]  
                                      direted edge pairs; padding with 0  
@@ -618,15 +654,12 @@ class MPCNO(nn.Module):
 
         # nodes: float[batch_size, nnodes, ndims]
         node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, outward_normals = aux
-        # bases: float[batch_size, nnodes, nmodes]
-        # scale the modes k  = k * ( inv_L_scale_min + (inv_L_scale_max - inv_L_scale_min)/(1 + exp(-self.inv_L_scale_latent) ))
-        bases_c,  bases_s,  bases_0  = compute_Fourier_bases(nodes, self.modes * (scaled_sigmoid(self.inv_L_scale_latent, self.inv_L_scale_min , self.inv_L_scale_max))) 
-        # node_weights: float[batch_size, nnodes, nmeasures]
-        # wbases: float[batch_size, nnodes, nmodes, nmeasures]
+        # bases: float[batch_size, nnodes, nbases]
+        bases  = compute_Fourier_bases(nodes, self.modes)
+        # node_weights: float[batch_size, nnodes] 
+        # wbases: float[batch_size, nnodes, nmodes, nbases]
         # set nodes with zero measure to 0
-        wbases_c = torch.einsum("bxkw,bxw->bxkw", bases_c, node_weights)
-        wbases_s = torch.einsum("bxkw,bxw->bxkw", bases_s, node_weights)
-        wbases_0 = torch.einsum("bxkw,bxw->bxkw", bases_0, node_weights)
+        wbases = torch.einsum("bxk,bx->bxk", bases, node_weights)
 
         geo = torch.cat([outward_normals,compute_gradient(outward_normals, directed_edges, edge_gradient_weights)], dim=1) if self.layer_selection['geo'] else None
 
@@ -636,11 +669,11 @@ class MPCNO(nn.Module):
         for i, (speconv, spw, spconvnw, spconvadjnw, w, grad_layer, geo_emb) in enumerate(zip(self.sp_convs, self.sp_ws, self.sp_convs_nws, self.sp_convs_adj_nws, self.ws, self.grad_layers, self.geo_embs)):
             
             if self.layer_selection['geointegral']:
-                x1 = speconv( spconvnw(  torch.cat([x] + [x * outward_normals[:, i:i+1, :] for i in range(outward_normals.size(1))], dim=1)  ), bases_c, bases_s, bases_0, wbases_c, wbases_s, wbases_0)
+                x1 = speconv( spconvnw(  torch.cat([x] + [x * outward_normals[:, i:i+1, :] for i in range(outward_normals.size(1))], dim=1)  ), bases, wbases)
                 x1 = spw(x1) + spconvadjnw(torch.cat([x1 * outward_normals[:, i:i+1, :] for i in range(outward_normals.size(1))], dim=1))
             else:
-                x1 = speconv(x, bases_c, bases_s, bases_0, wbases_c, wbases_s, wbases_0)
-                x1 = spw(x1)
+                x1 = speconv(x, bases, wbases)
+    
                 
             x2 = w(x)
 
@@ -673,112 +706,6 @@ class MPCNO(nn.Module):
        
         return x 
     
-
-
-################################################################
-# Training (Optimization)
-################################################################
-
-class CombinedOptimizer:
-    '''
-    CombinedOptimizer.
-    train two param groups independently.
-    the learning rates of two optimizers are lr, lr_ratio*lr respectively
-    '''
-    def __init__(self, params1, params2, betas, lr, lr_ratio, weight_decay):
-        self.optimizer1 = Adam(
-        params1,
-        betas=betas,
-        lr=lr,
-        weight_decay=weight_decay,
-        )
-        if params2 == []:
-            self.optimizer2 = None
-        else:
-            self.optimizer2 = Adam(
-            params2,
-            betas=betas,
-            lr= lr_ratio*lr,
-            weight_decay=weight_decay,
-        )
-
-    def step(self):
-        self.optimizer1.step()
-        if self.optimizer2:
-            self.optimizer2.step()
-    
-    def zero_grad(self):
-        self.optimizer1.zero_grad()
-        if self.optimizer2:
-            self.optimizer2.zero_grad()
-
-    def state_dict(self):
-        # Initialize an empty dictionary to store the state
-        state = {}
-        # Save the state of the first optimizer
-        state['optimizer1'] = self.optimizer1.state_dict()
-        if self.optimizer2:
-            # Save the state of the second optimizer
-            state['optimizer2'] = self.optimizer2.state_dict()
-        return state
-
-    def load_state_dict(self, state_dict):
-        # Load the state of the first optimizer
-        self.optimizer1.load_state_dict(state_dict['optimizer1'])
-        if self.optimizer2:
-            # Load the state of the second optimizer
-            self.optimizer2.load_state_dict(state_dict['optimizer2'])
-
-        
-
-
-class Combinedscheduler_OneCycleLR:
-    '''
-    Combinedscheduler.
-    scheduler two optimizers independently.
-    '''
-    def __init__(self, Combinedoptimizer,  max_lr, lr_ratio,
-            div_factor, final_div_factor, pct_start,
-            steps_per_epoch, epochs):
-
-        self.scheduler1 = torch.optim.lr_scheduler.OneCycleLR(
-            Combinedoptimizer.optimizer1, max_lr=max_lr,
-            div_factor=div_factor, final_div_factor=final_div_factor, pct_start=pct_start,
-            steps_per_epoch=steps_per_epoch, epochs=epochs)
-        if Combinedoptimizer.optimizer2:
-            self.scheduler2 = torch.optim.lr_scheduler.OneCycleLR(
-                Combinedoptimizer.optimizer2, max_lr=max_lr*lr_ratio,
-                div_factor=div_factor, final_div_factor=final_div_factor, pct_start=pct_start,
-                steps_per_epoch=steps_per_epoch, epochs=epochs)
-        else:
-            self.scheduler2 = None
-
-    def step(self):
-        self.scheduler1.step()
-        if self.scheduler2:
-            self.scheduler2.step()
-
-    def state_dict(self):
-        # Initialize an empty dictionary to store the state
-        state = {}
-
-        # Save the state of the first scheduler
-        state['scheduler1'] = self.scheduler1.state_dict()
-        if self.scheduler2:
-            # Save the state of the second scheduler
-            state['scheduler2'] = self.scheduler2.state_dict()
-
-        return state
-
-    def load_state_dict(self, state_dict):
-        # Load the state of the first scheduler
-        self.scheduler1.load_state_dict(state_dict['scheduler1'])
-        if self.scheduler2:
-            # Load the state of the second scheduler
-            self.scheduler2.load_state_dict(state_dict['scheduler2'])
-
-        
-
 
 
 
@@ -842,31 +769,17 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
     
     myloss = LpLoss(d=1, p=2, size_average=False)
 
-    optimizer = CombinedOptimizer(model.normal_params, model.inv_L_scale_params,
-        betas=(0.9, 0.999),
-        lr=config["train"]["base_lr"],
-        lr_ratio = config["train"]["lr_ratio"],
-        weight_decay=config["train"]["weight_decay"],
-        )
+    optimizer = Adam(model.parameters(), betas=(0.9, 0.999),
+                     lr=config['train']['base_lr'], weight_decay=config['train']['weight_decay'])
     
-    scheduler = Combinedscheduler_OneCycleLR(
-        optimizer, max_lr=config['train']['base_lr'], lr_ratio = config["train"]["lr_ratio"],
-        div_factor=2, final_div_factor=100,pct_start=0.2,
-        steps_per_epoch=len(train_loader), epochs=config['train']['epochs'])
+    
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=config['train']['base_lr'], 
+            div_factor=2, final_div_factor=100, pct_start=0.2,
+            steps_per_epoch=len(train_loader), epochs=config['train']['epochs'])
     
     current_epoch, epochs = 0, config['train']['epochs']
     
-    if checkpoint_path:
-        checkpoint = torch.load(checkpoint_path, weights_only=True)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        # retrieve epoch and loss
-        current_epoch = checkpoint['current_epoch'] + 1
-        print("resetart from epoch : ", current_epoch)
-
-
-
 
     for ep in range(current_epoch, epochs):
         t1 = default_timer()
@@ -931,19 +844,16 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
     
 
         t2 = default_timer()
-        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2_dict, " Test L2 Loss : ", test_l2_dict,
-              " inv_L_scale: ",[round(float(x[0]), 3) for x in (scaled_sigmoid(model.inv_L_scale_latent, model.inv_L_scale_min, model.inv_L_scale_max)).cpu().tolist()],
-              flush=True)
+
+        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2_dict, " Test L2 Loss : ", test_l2_dict,  flush=True)
         if (ep %100 == 99) or (ep == epochs -1):    
             if save_model_name:
                 torch.save(model.state_dict(), save_model_name + ".pth")
-
-                torch.save({
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'current_epoch': ep,  # optional: to track training progress
-                }, "checkpoint.pth")
+                if normalization_x:
+                    torch.save(x_normalizer.state_dict(), save_model_name + "_normalization_x.pth")
+                if normalization_y:
+                    torch.save(y_normalizer.state_dict(), save_model_name + "_normalization_y.pth")
+          
 
             
     
@@ -996,30 +906,17 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
     
     myloss = LpLoss(d=1, p=2, size_average=False)
 
-    optimizer = CombinedOptimizer(model.normal_params, model.inv_L_scale_params,
-        betas=(0.9, 0.999),
-        lr=config["train"]["base_lr"],
-        lr_ratio = config["train"]["lr_ratio"],
-        weight_decay=config["train"]["weight_decay"],
-        )
+    optimizer = Adam(model.parameters(), betas=(0.9, 0.999),
+                     lr=config['train']['base_lr'], weight_decay=config['train']['weight_decay'])
     
-    scheduler = Combinedscheduler_OneCycleLR(
-        optimizer, max_lr=config['train']['base_lr'], lr_ratio = config["train"]["lr_ratio"],
-        div_factor=2, final_div_factor=100,pct_start=0.2,
-        steps_per_epoch=len(train_loader), epochs=config['train']['epochs'])
+    
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=config['train']['base_lr'], 
+            div_factor=2, final_div_factor=100, pct_start=0.2,
+            steps_per_epoch=len(train_loader), epochs=config['train']['epochs'])
     
     current_epoch, epochs = 0, config['train']['epochs']
     
-    if checkpoint_path:
-        checkpoint = torch.load(checkpoint_path, weights_only=True)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        # retrieve epoch and loss
-        current_epoch = checkpoint['current_epoch'] + 1
-        print("resetart from epoch : ", current_epoch)
-
-
 
 
     for ep in range(current_epoch, epochs):
@@ -1078,21 +975,15 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
     
 
         t2 = default_timer()
-        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2,
-              " inv_L_scale: ",[round(float(x[0]), 3) for x in (scaled_sigmoid(model.inv_L_scale_latent, model.inv_L_scale_min, model.inv_L_scale_max)).cpu().tolist()],
-              flush=True)
+        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2,  flush=True)
         if (ep %100 == 99) or (ep == epochs -1):    
             if save_model_name:
                 torch.save(model.state_dict(), save_model_name + ".pth")
-
-                torch.save({
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'current_epoch': ep,  # optional: to track training progress
-                }, "checkpoint.pth")
-
-            
+                if normalization_x:
+                    torch.save(x_normalizer.state_dict(), save_model_name + "_normalization_x.pth")
+                if normalization_y:
+                    torch.save(y_normalizer.state_dict(), save_model_name + "_normalization_y.pth")
+          
     
     
     return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
@@ -1164,32 +1055,17 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
 
     myloss = LpLoss(d=1, p=2, size_average=False)
 
-    optimizer = CombinedOptimizer(model.module.normal_params, model.module.inv_L_scale_params,
-        betas=(0.9, 0.999),
-        lr=config["train"]["base_lr"],
-        lr_ratio = config["train"]["lr_ratio"],
-        weight_decay=config["train"]["weight_decay"],
-        )
+    optimizer = Adam(model.parameters(), betas=(0.9, 0.999),
+                     lr=config['train']['base_lr'], weight_decay=config['train']['weight_decay'])
     
-    scheduler = Combinedscheduler_OneCycleLR(
-        optimizer, max_lr=config['train']['base_lr'], lr_ratio = config["train"]["lr_ratio"],
-        div_factor=2, final_div_factor=100,pct_start=0.2,
-        steps_per_epoch=len(train_loader), epochs=config['train']['epochs'])
+    
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=config['train']['base_lr'], 
+            div_factor=2, final_div_factor=100, pct_start=0.2,
+            steps_per_epoch=len(train_loader), epochs=config['train']['epochs'])
     
     current_epoch, epochs = 0, config['train']['epochs']
     
-    if checkpoint_path:
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
-        model.module.load_state_dict(checkpoint['model_state_dict'])
-        
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        # retrieve epoch and loss
-        current_epoch = checkpoint['current_epoch'] + 1
-        if rank == 0:
-            print("resetart from epoch : ", current_epoch)
-
-
        
     if rank == 0:
         print(f"n_train = ", n_train, " n_test = ", n_test)
@@ -1284,13 +1160,15 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
             print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2, flush=True)
         
         
-            if ((ep %100 == 99) or (ep == epochs -1)) and save_model_name:    
-                torch.save({
-                    'model_state_dict': model.module.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'current_epoch': ep,  # optional: to track training progress
-                }, "checkpoint_parallel.pth")
+            if (ep %100 == 99) or (ep == epochs -1):    
+                if save_model_name:
+                    torch.save(model.state_dict(), save_model_name + ".pth")
+                    if normalization_x:
+                        torch.save(x_normalizer.state_dict(), save_model_name + "_normalization_x.pth")
+                    if normalization_y:
+                        torch.save(y_normalizer.state_dict(), save_model_name + "_normalization_y.pth")
+          
+    
 
         # Synchronize all processes
         dist.barrier()

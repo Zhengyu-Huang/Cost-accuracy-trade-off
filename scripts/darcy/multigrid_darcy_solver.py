@@ -402,10 +402,64 @@ def cost_accuracy_traditional_solver():
     return  cost, accuracy, sol 
 
 
+
+
+
+def traditional_solver(test_index, downsample):
+    """
+    Traditional solver .
+    """
+    # load reference solution
+    
+    m_iteration = 15  # number of multigrid v cycle iterations
+    nu_iteration = 2  # number of smoothing per multigrid v cycle iteration
+    
+    solver_parameters_mg = {
+        "ksp_type": "richardson",
+        "ksp_max_it": m_iteration,
+        "ksp_rtol": 1.0e-6,
+        "pc_type": "mg",
+        "pc_mg_type": "multiplicative",
+        "pc_mg_cycle_type": "v",
+        "mg_levels_ksp_type": "richardson",
+        "mg_levels_pc_type": "jacobi",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "lu",
+        # "ksp_monitor": None,
+        # "ksp_converged_reason": None,
+    }
+    
+    nx = ny = 512
+    ngrid = nx + 1
+    L = 1.0
+    data = np.load(f"../../data/darcy/darcy_data_{test_index:05d}.npy")
+            
+    # data : n by n by 2 array. 
+    # kappa, u
+    stride = 2**downsample
+    data = data[0::stride, 0::stride, :]
+    kappa_data, u_ref  = data[:,:,0], data[:,:,1]
+    n_plus1, _ = kappa_data.shape  # number of point in each direction
+    n = n_plus1 - 1                # number of element in each direction
+    f_data = np.ones((n, n))
+    
+    uh, V, cost_cpu_time = solve_darcy_equation(n, n, hierarchy_level=6-downsample, kappa = kappa_data, f = f_data, solver_parameters = solver_parameters_mg)
+    u_data = function_to_nodal_array(uh, n, n)
+            
+    
+    np.savez_compressed('data/traditional_solver_data.npz', sol=u_data)
+
+    return  
+
+
+
 # Example usage
 if __name__ == "__main__":
     # test_darcy_equation()
     # generate_data()
     # visualize_data()
-    cost_accuracy_traditional_solver()
+
+
+    # cost_accuracy_traditional_solver()
+    traditional_solver(test_index=9999, downsample=3)
     

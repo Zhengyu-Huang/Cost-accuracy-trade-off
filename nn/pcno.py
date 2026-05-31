@@ -12,6 +12,16 @@ from utility.normalizer import UnitGaussianNormalizer
     
 
 def _get_act(act):
+    """
+    Get activation function by name.
+    
+    Args:
+        act: String name of activation function. Options:
+             'tanh', 'gelu', 'relu', 'elu', 'leaky_relu', 'none'
+    
+    Returns:
+        Activation function callable or None
+    """
     if act == "tanh":
         func = F.tanh
     elif act == "gelu":
@@ -27,46 +37,6 @@ def _get_act(act):
     else:
         raise ValueError(f"{act} is not supported")
     return func
-
-
-def scaled_sigmoid(x: torch.Tensor, min_val: float, max_val: float) -> torch.Tensor:
-    """
-    Applies a sigmoid function scaled to output values in the range [min_val, max_val].
-    This transformation maps any real-valued input to a specified bounded interval,
-    maintaining gradient flow for backpropagation. Useful for constraining network outputs.
-    
-    Math:
-        output = min_val + (max_val - min_val) * σ(x)
-        where σ(x) = 1/(1 + exp(-x)) is the standard sigmoid function
-    
-    Require:
-        max_val >= min_val
-    """
-    return min_val + (max_val - min_val) * torch.sigmoid(x)
-
-
-def scaled_logit(y: torch.Tensor, min_val: float, max_val: float) -> torch.Tensor:
-    """
-    Inverse of scaled_sigmoid - maps values from [min_val, max_val] back to unbounded space.
-    
-    Also known as the generalized logit transform. Handles numerical stability at boundaries.
-    
-    Args:
-        y: Input tensor (values must be in (min_val, max_val) range)
-        min_val: Lower bound of input range (exclusive)
-        max_val: Upper bound of input range (exclusive)
-        
-    Returns:
-        Tensor of same shape as input with unbounded real values
-    
-    Math:
-        output = log( (y - min_val) / (max_val - y) )
-        This is the inverse operation of scaled_sigmoid()
-  
-    Require:
-        min_val < y <  max_val
-    """
-    return torch.log((y - min_val)/(max_val - y))
 
 
 def compute_Fourier_modes_helper(ndims, nks, Ls):
@@ -564,16 +534,6 @@ def PCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, mo
     
     current_epoch, epochs = 0, config['train']['epochs']
     
-    if checkpoint_path:
-        checkpoint = torch.load(checkpoint_path, weights_only=True)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        # retrieve epoch and loss
-        current_epoch = checkpoint['current_epoch'] + 1
-        print("resetart from epoch : ", current_epoch)
-
-
     
     for ep in range(current_epoch, epochs):
         t1 = default_timer()
@@ -620,29 +580,29 @@ def PCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, mo
 
 
         
-
+        # Average losses over dataset size
         train_rel_l2/= n_train
         test_l2 /= n_test
         test_rel_l2/= n_test
+
+        # Store losses
         train_rel_l2_losses.append(train_rel_l2)
         test_rel_l2_losses.append(test_rel_l2)
         test_l2_losses.append(test_l2)
     
 
         t2 = default_timer()
+
+
         print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2, flush=True)
-        if ((ep %100 == 99) or (ep == epochs -1)) and save_model_name:    
-            torch.save(model.state_dict(), save_model_name + ".pth")
-
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'current_epoch': ep,  # optional: to track training progress
-            }, "checkpoint.pth")
-
-            
-    
+        if ((ep %100 == 99) or (ep == epochs -1)):
+            if save_model_name:    
+                torch.save(model.state_dict(), save_model_name + ".pth")
+                if normalization_x:
+                    torch.save(x_normalizer.state_dict(), save_model_name + "_normalization_x.pth")
+                if normalization_y:
+                    torch.save(y_normalizer.state_dict(), save_model_name + "_normalization_y.pth")
+          
     
     return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
 

@@ -13,7 +13,7 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-Uinlet          16;
+Uinlet          30;
 
 wheelRadius     0.318;
 wheelBase       2.786;

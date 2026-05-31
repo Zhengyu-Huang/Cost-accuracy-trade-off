@@ -42,6 +42,11 @@ mv  system/controlDict.orig            system/controlDict
 mv  system/decomposeParDict.orig       system/decomposeParDict
 ```
 
+Modify the inflow velocity in '0/U'
+```bash
+Uinlet          30;
+```
+
 And create the postprocess file `system/controlDict.post` for pressure coefficient `Cp` and wall shear stress `wallShearStress`
 
 
@@ -134,7 +139,7 @@ Submit the job with:
 sbatch postprocess_drivaer_S.sbatch
 ```
 
-## 4.3 Procedure
+### 4.3 Procedure
 The aforementioned submission runs the postprocess procedure: 
 
 Source the OpenFOAM run functions:
@@ -184,10 +189,36 @@ This writes volume-field VTK files under `VTK/drivaerFastback_**.vtk`
 
 
 
+## 5. Neural Operator Training 
+### 5.1 Datasets
+
+link: https://disk.pku.edu.cn/link/AA581EA0843A6441E8BC6CDBE18DE5EA15
+file name：mixed_3d.zip
+
+### 5.2 Preprocess all data
+```bash
+sbatch mpcno_preprocess_data.sh  
+```
+```bash
+sbatch mpcno_reduce_data.sh
+```
+Reduce data, random shuffle and save the first n_train data and the last n_test data to reduce data size for training 
+
+
+### 5.3 Training 
+Training with a single GPU
+```bash
+sbatch mpcno_train.sh
+```
+Training with multiple GPUs
+```bash
+sbatch mpcno_parallel_train.sh
+```
 
 
 
-# Numerical method cost accuracy trade-off
+
+## 6. Numerical method cost accuracy trade-off
 Estimate the cost (floating point flops and CPU time) and accuracy (relative error) with different downsampled meshes, save the data
 cost_accuracy_traditional_solver() in multigrid_darcy_solver.py
 

@@ -60,7 +60,7 @@ def preprocess_data(n_train, n_test, downsample = 1):
     return x_train, y_train, x_test, y_test, dx1, dx2
 
 
-def load_test_data(n_test_file, downsample):
+def load_test_data(test_data_indices, downsample):
     """
     Preprocess Darcy flow simulation data for testing.
 
@@ -69,7 +69,7 @@ def load_test_data(n_test_file, downsample):
     the required files, optionally downsamples the spatial grid
 
     Parameters:
-        n_test_file (int): Number of testing filess to extract.
+        test_data_indices (list of int): testing file indices.
         downsample (int): Downsampling factor (2**downsample). Default 1 => no downsampling.
         
     Returns:
@@ -78,6 +78,7 @@ def load_test_data(n_test_file, downsample):
     """
     # --- Constants derived from the raw data format ---
     n_file = 10000          # total number of available .npy files (0 … 1999)
+    assert all(0 <= idx < 10000 for idx in test_data_indices)
     n = 512                 # original spatial resolution (256×256 grid)
     
     stride = 2**downsample 
@@ -86,19 +87,19 @@ def load_test_data(n_test_file, downsample):
     L = 1.0
     
     # Create coordinate grids (x1, x2) on the downsampled grid
-    x1 = np.linspace(0.0, L, n, endpoint=False)
-    x2 = np.linspace(0.0, L, n, endpoint=False)
+    x1 = np.linspace(0.0, L, n+1, endpoint=True)
+    x2 = np.linspace(0.0, L, n+1, endpoint=True)
     x1_grid, x2_grid = np.meshgrid(x1, x2, indexing="ij")
     dx1 = dx2 = L/n
     
     
     X, Y = [], []
-    X = np.zeros((nt+1, n, n, in_dim))
-    for i in [n_file + x for x in range(-n_test_file, 0)]:
+    for i in test_data_indices:
         data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
+        data = data[0::stride, 0::stride, :]
         # data : n by n by 2 array. 
         # kappa, u
-       
+        
         X.append(np.stack([data[:,:,0], x1_grid, x2_grid], axis=2))    # kappa, x, y
         Y.append(data[:,:,1:])     
         

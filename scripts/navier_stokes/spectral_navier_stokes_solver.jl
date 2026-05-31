@@ -184,7 +184,6 @@ function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
     Tsaves = 1.0
     L = 1.0
     cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial, nt+1)
-    sol = []
     for downsample = 0:n_downsample-1 
         stride = 2^downsample
         for i = 1:n_trial
@@ -214,17 +213,59 @@ function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
             accuracy[downsample+1, i, :] = rel_error
             print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time, "\n")
 
-            if i == 1 # save data
-                push!(sol, cat(reshape(F_phys, 1, n, n), zeta_data_ref, zeta_data; dims=1))
-            end
+ 
         end
     end
 
 
 
-    return  cost, accuracy, sol 
+    return  cost, accuracy 
 
 end
+
+
+
+
+function traditional_solver(;test_index, downsample)
+    """
+    Traditional solver .
+    """
+    # load reference solution
+    
+    nt = 50  # number of iterations
+    dev = CPU() 
+    ν = 1e-4
+
+    nx = ny = 256
+    dt = 1/512.0
+
+    Tsaves = 1.0
+    L = 1.0
+    stride = 2^downsample
+       
+    data = NPZ.npzread(@sprintf("../../data/navier_stokes/navier_stokes_%05d.npy", test_index))
+    # data : nt+2 by n by n array. 
+    # F, w_0, w_1, ... , w_nt
+            
+    data = data[:, 1:stride:end, 1:stride:end]
+    F_phys, zeta_data_ref  = data[1, :,:], data[2:end,:,:]
+    F_phys_dev = device_array(dev)(F_phys)
+    F_hat = rfft(F_phys_dev)
+
+    ζ0 = zeta_data_ref[1,:,:]
+
+    n, _ = size(F_phys)            # number of cells in each direction
+    ne = n * n
+    zeta_data = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
+
+    NPZ.npzwrite("data/traditional_solver_data.npz", zeta_data)    
+            
+    
+
+    return  
+
+end
+
 
 
 function cost_accuracy_traditional_solver(;n_downsample, n_trial)
@@ -238,8 +279,8 @@ function cost_accuracy_traditional_solver(;n_downsample, n_trial)
     
 
     
-    for device in ["cpu", "gpu"]
-        cost_ds, accuracy_ds, sol_ds =  cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
+    for device in ["gpu","cpu"]
+        cost_ds, accuracy_ds =  cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
         cost[:, :, 1] = cost_ds[:,:,1]
         if device == "cpu"
             cost[:, :, 2] = cost_ds[:,:,2]
@@ -264,4 +305,5 @@ end
 
 # taylor_green_vortex_test()
 # generate_data(nx = 256, ny = 256, ndata = 2000)
-cost_accuracy_traditional_solver(n_downsample=4, n_trial=2)
+traditional_solver(test_index=1999, downsample=2)
+# cost_accuracy_traditional_solver(n_downsample=4, n_trial=10)

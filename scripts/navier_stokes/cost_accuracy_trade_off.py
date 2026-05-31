@@ -22,7 +22,7 @@ formatter.set_useOffset(True)        # 明确使用偏移量
 lbl = "#000000"
 tk = "#808080"
     
-def visualize_data():
+def visualize_data(visualize_prediction=False):
         
     i = 1999
     data = data = np.load(f"../../data/navier_stokes/navier_stokes_{i:05d}.npy")
@@ -31,17 +31,50 @@ def visualize_data():
     
     ngrid, _ = force.shape
     x, y = np.meshgrid(np.linspace(0,1,ngrid, endpoint=False), np.linspace(0,1,ngrid, endpoint=False), indexing='ij')
-    ts = [0,1,10,20]        
-    fig, axs = plt.subplots(1, 4, figsize=(24, 6))
+    ts = [0,10,20,30]
+    vmin_vorticity = [vorticity[ts[i],...].min() for i in range(len(ts))]
+    vmax_vorticity = [vorticity[ts[i],...].max() for i in range(len(ts))]        
+    fig, axs = plt.subplots(3, 4, figsize=(24, 18)) if visualize_prediction else plt.subplots(1, 4, figsize=(24, 6), squeeze=False)
+    axs[0,0].set_ylabel(rf"$\omega~$(Reference)", fontsize=28)
     for i in range(4):
-        im = axs[i].pcolormesh(x, y, vorticity[ts[i],...], cmap='viridis', shading='gouraud')
-        axs[i].set_title(rf"$\omega (t={ts[i]})$");
-        axs[i].set_xticks([]);
-        axs[i].set_yticks([]);
-        axs[i].set_aspect('equal')
-        cbar = fig.colorbar(im, ax=axs[i], fraction=0.046, pad=0.04, shrink=1.0)
+        im = axs[0,i].pcolormesh(x, y, vorticity[ts[i],...], cmap='viridis', shading='gouraud', vmin=vmin_vorticity[i], vmax=vmax_vorticity[i])
+        axs[0,i].set_title(rf"$t={ts[i]}$");
+        axs[0,i].set_xticks([]);
+        axs[0,i].set_yticks([]);
+        axs[0,i].set_aspect('equal')
+        cbar = fig.colorbar(im, ax=axs[0,i], fraction=0.046, pad=0.04, shrink=1.0)
         cbar.ax.tick_params(axis='y', colors=tk)
         cbar.formatter = formatter
+
+    if visualize_prediction:
+        traditional_solver_pred = np.load('data/traditional_solver_data.npz')
+        mno_solver_pred = np.load('data/mno_solver_data.npz')["sol"]  
+
+        print(traditional_solver_pred.shape)
+        print(mno_solver_pred.shape)
+
+        stride = 2**2
+        axs[1,0].set_ylabel(rf"$\omega~(64 \times 64)$", fontsize=28);
+        for i in range(4):
+            im = axs[1,i].pcolormesh(x[::stride,::stride], y[::stride,::stride], traditional_solver_pred[ts[i],...], cmap='viridis', shading='gouraud', vmin=vmin_vorticity[i], vmax=vmax_vorticity[i])
+            axs[1,i].set_xticks([]);
+            axs[1,i].set_yticks([]);
+            axs[1,i].set_aspect('equal')
+            cbar = fig.colorbar(im, ax=axs[1,i], fraction=0.046, pad=0.04, shrink=1.0)
+            cbar.ax.tick_params(axis='y', colors=tk)
+            cbar.formatter = formatter
+
+        stride = 2**1
+        axs[2,0].set_ylabel(rf"$\omega~$(MNO)", fontsize=28);
+        for i in range(4):
+            im = axs[2,i].pcolormesh(x[::stride,::stride], y[::stride,::stride], mno_solver_pred[ts[i],...], cmap='viridis', shading='gouraud', vmin=vmin_vorticity[i], vmax=vmax_vorticity[i])
+            axs[2,i].set_xticks([]);
+            axs[2,i].set_yticks([]);
+            axs[2,i].set_aspect('equal')
+            cbar = fig.colorbar(im, ax=axs[2,i], fraction=0.046, pad=0.04, shrink=1.0)
+            cbar.ax.tick_params(axis='y', colors=tk)
+            cbar.formatter = formatter
+    
 
     fig.savefig(f"figs/navier_stokes_flow_map.png")
     
@@ -105,33 +138,182 @@ def solution_plot():
     fig.savefig("figs/cost_accuracy_traditional_solver.pdf") 
     
     
+def nrollouts_plot():
     
-def cost_accuracy_plot():
-    print("darcy flow cost accuracy plot")
     cost_accuracy_traditional_solver_data = np.load('data/cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
     cost_traditional_solver = cost_accuracy_traditional_solver_data['cost']
+    # np.array of size (n_downsample, n_trial, 2, nt+1)
     accuracy_traditional_solver = cost_accuracy_traditional_solver_data['accuracy']
     
+    # np.array of size ((len(nrollouts), n_trial, nt+1))
+    accuracy_mno_solver = np.load('data/accuracy_mno_solver_nrollout_data.npz')['accuracy']
     
+    fig, axs = plt.subplots(1, 1, figsize=(12, 6))
+    axs.grid(True, linestyle=':', linewidth=0.5, alpha=0.6)
+    
+    mean_accuracy_traditional_solver = np.mean(accuracy_traditional_solver, axis=1)       
+    std_accuracy_traditional_solver  = np.std(accuracy_traditional_solver, axis=1, ddof=1)/5
+    mean_accuracy_mno_solver = np.mean(accuracy_mno_solver, axis=1)
+    std_accuracy_mno_solver  = np.std(accuracy_mno_solver, axis=1, ddof=1)/5       
+    
+    nt = 50
+    time_array = np.linspace(0, nt, nt+1)
+    # axs[0].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,0], 'o-')
+    # axs.errorbar(time_array, mean_accuracy_traditional_solver[0,0,...], yerr=std_accuracy_traditional_solver[0,0,...], fmt='-s', label=rf"Spectral method ($256 \times 256$)", color='C0')
+    axs.errorbar(time_array, mean_accuracy_traditional_solver[1,0,...], yerr=std_accuracy_traditional_solver[1,0,...], fmt='-s', label=rf"Spectral method ($128 \times 128$)", color='C0')
+    axs.errorbar(time_array, mean_accuracy_traditional_solver[2,0,...], yerr=std_accuracy_traditional_solver[2,0,...], fmt='-s', label=rf"Spectral method ($64 \times 64$)", color='C1')
+    axs.errorbar(time_array, mean_accuracy_traditional_solver[3,0,...], yerr=std_accuracy_traditional_solver[3,0,...], fmt='-s', label=rf"Spectral method ($32 \times 32$)", color='C2')
+    axs.errorbar(time_array, mean_accuracy_mno_solver[0,...], yerr=std_accuracy_mno_solver[0,...], fmt='-o', label=rf"MNO ($s=1$)", color='C3')
+    axs.errorbar(time_array, mean_accuracy_mno_solver[1,...], yerr=std_accuracy_mno_solver[1,...], fmt='-o', label=rf"MNO ($s=2$)", color='C4')
+    axs.errorbar(time_array, mean_accuracy_mno_solver[2,...], yerr=std_accuracy_mno_solver[2,...], fmt='-o', label=rf"MNO ($s=3$)", color='C5')
+    axs.legend()
+    axs.set_xlabel("Time")
+    axs.set_ylabel("Rel. error")
+    
+
+    fig.tight_layout()
+    fig.savefig("figs/navier_stokes_nrollout_accuracy.png")   
+    
+    
+    
+def cost_accuracy_plot():
+    # use the first nt steps to compute error
+    nt_error, nt = 30, 50
+    
+    cost_accuracy_traditional_solver_data = np.load('data/cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
+    # np.array of size (n_downsample, n_trial, 2)
+    cost_traditional_solver = cost_accuracy_traditional_solver_data['cost'] * nt_error / nt
+    # np.array of size (n_downsample, n_trial, 2, nt+1) -> (n_downsample, n_trial, 2)
+    accuracy_traditional_solver = np.mean(cost_accuracy_traditional_solver_data['accuracy'][...,0:nt_error+1], axis=3)
+    
+    cost_accuracy_mno_solver_data = np.load('data/cost_accuracy_mno_solver_data.npz')
+    # np.array of size (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3)
+    cost_mno_solver = cost_accuracy_mno_solver_data['cost']
+    cost_mno_solver[...,0] *= nt_error  # we save only one step flops
+    cost_mno_solver[...,1:] *= nt_error / nt
+
+
+    print("cost_mno_solver = " , cost_mno_solver[0,0,:,0,0,:])
+    print("cost_mno_solver = " , cost_mno_solver[1,0,:,0,0,:])
+    print("cost_mno_solver = " , cost_mno_solver[2,0,:,0,0,:])
+
+
+    cost_mno_solver = cost_mno_solver.reshape((-1, cost_mno_solver.shape[-2], cost_mno_solver.shape[-1]))
+    
+    # np.array of size (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2, nt+1) -> (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2)
+    accuracy_mno_solver = np.mean(cost_accuracy_mno_solver_data['accuracy'][...,0:nt_error+1], axis=6)
+
+
+
+    print("accuracy_mno_solver = ", accuracy_mno_solver[0,0,1,0,:,:])
+    print("accuracy_mno_solver = ", accuracy_mno_solver[1,0,1,0,0,:])
+    print("accuracy_mno_solver = ", accuracy_mno_solver[2,0,1,0,0,:])
+    
+
+    accuracy_mno_solver = accuracy_mno_solver.reshape((-1, accuracy_mno_solver.shape[-2], accuracy_mno_solver.shape[-1]))
+        
+
+
+
     fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-    mean_cost_traditional_solver = np.mean(cost_traditional_solver, axis=1)     
+    for ax in axs:
+        ax.grid(True, linestyle=':', linewidth=0.5, alpha=0.6)
+    
+
+    mean_cost_traditional_solver = np.mean(cost_traditional_solver, axis=1) 
     mean_accuracy_traditional_solver = np.mean(accuracy_traditional_solver, axis=1)    
     std_cost_traditional_solver  = np.std(cost_traditional_solver, axis=1, ddof=1)       
     std_accuracy_traditional_solver  = np.std(accuracy_traditional_solver, axis=1, ddof=1)
 
+    mean_cost_mno_solver = np.mean(cost_mno_solver, axis=1)  
+    mean_accuracy_mno_solver = np.mean(accuracy_mno_solver, axis=1)    
+    std_cost_mno_solver  = np.std(cost_mno_solver, axis=1, ddof=1)       
+    std_accuracy_mno_solver  = np.std(accuracy_mno_solver, axis=1, ddof=1)
+
+    print("mean_cost_mno_solver: ", mean_cost_mno_solver)
+    print("mean_accuracy_mno_solver:", mean_accuracy_mno_solver)
+
     # axs[0].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,0], 'o-')
-    axs[0].errorbar(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,0], xerr=std_accuracy_traditional_solver, fmt='o')
+    axs[0].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,0], xerr=std_accuracy_traditional_solver[...,0], fmt='s', color='C0')
+    log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
+    log_cost = np.log10(mean_cost_traditional_solver[...,0])[1:]
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
+                label=f'Spectral method ($\\varepsilon^{{{slope:.2f}}}$)')
+        
+    # axs[0].loglog(mean_accuracy_mno_solver, mean_cost_mno_solver[...,0], 'o-')
+    print(mean_accuracy_mno_solver.shape, mean_cost_mno_solver.shape, std_accuracy_mno_solver.shape)
+    
+    axs[0].errorbar(mean_accuracy_mno_solver[...,0], mean_cost_mno_solver[...,0], xerr=std_accuracy_mno_solver[...,0], fmt='o', color='C1')
+    log_err = np.log10(mean_accuracy_mno_solver[...,0]) 
+    log_cost = np.log10(mean_cost_mno_solver[...,0]) 
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
+                label=f'MNO')
+    
     axs[0].set_xlabel("Rel. error")
     axs[0].set_ylabel("Floating-point cost")
+    axs[0].legend(loc='lower left')
+    axs[0].set_ylim(bottom=1e8)
     
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
-    axs[1].errorbar(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], xerr=std_accuracy_traditional_solver, yerr=std_cost_traditional_solver[...,1], fmt='o')
+
+    
+    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,2], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,2], fmt='s', color='C0')
+    log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
+    log_cost = np.log10(mean_cost_traditional_solver[...,2])[1:]
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
+                label=f'Spectral method (GPU)')
+    
+
+
+    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,1], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,1], fmt='s', color='C2')
+    log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
+    log_cost = np.log10(mean_cost_traditional_solver[...,1])[1:]
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C2', linewidth=2,
+                label=f'Spectral method (CPU)')
+    
+
+    axs[1].errorbar(mean_accuracy_mno_solver[...,0], mean_cost_mno_solver[...,2], xerr=std_accuracy_mno_solver[...,0], yerr=std_cost_mno_solver[...,2], fmt='o', color='C1')
+    log_err = np.log10(mean_accuracy_mno_solver[...,0])
+    log_cost = np.log10(mean_cost_mno_solver[...,2])
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
+                label=f'MNO (GPU)')
+
+    axs[1].errorbar(mean_accuracy_mno_solver[...,0], mean_cost_mno_solver[...,1], xerr=std_accuracy_mno_solver[...,0], yerr=std_cost_mno_solver[...,1], fmt='o', color='C3')
+    log_err = np.log10(mean_accuracy_mno_solver[...,0])
+    log_cost = np.log10(mean_cost_mno_solver[...,1])
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
+                label=f'MNO (CPU)')
+    
+
+
+    
     axs[1].set_xlabel("Rel. error")
-    axs[1].set_ylabel("CPU cost (s)")
+    axs[1].set_ylabel("Runtime (s)")
+    axs[1].legend(loc='lower left')
+    
 
     fig.tight_layout()
-    fig.savefig("figs/darcy_flow_cost_accuracy.png")    
+    fig.savefig("figs/navier_stokes_cost_accuracy.png")    
         
 if __name__ == "__main__":
-    # visualize_data()
+    # visualize_data(visualize_prediction=True)
     cost_accuracy_plot()
+    # nrollouts_plot()

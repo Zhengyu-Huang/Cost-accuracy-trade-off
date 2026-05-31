@@ -33,7 +33,7 @@ Cp
     calcCoeff   yes;
 
     pInf        0;
-    UInf        (16 0 0);
+    UInf        (30 0 0);
 
     writeControl writeTime;
 }
