@@ -1,0 +1,62 @@
+#!/bin/bash
+#SBATCH -o ParMNO_train.out
+#SBATCH --qos=low
+#SBATCH -J ParMNO_train
+#SBATCH -p GPU80G
+#SBATCH --nodes=1 
+#SBATCH --ntasks=6
+#SBATCH --gres=gpu:1
+#SBATCH --time=100:00:00
+#SBATCH --array=0-8  
+
+# ========== params ==========
+
+N_TRAIN=10000
+
+
+K_MAX_VALUES=(16)
+N_LAYER_VALUES=(4 5 6)
+DF_VALUES=(64)
+DOWNSAMPLE_VALUES=(1 2 3)
+# =============================
+
+K_MAX_COUNT=${#K_MAX_VALUES[@]}
+N_LAYER_COUNT=${#N_LAYER_VALUES[@]}
+DF_COUNT=${#DF_VALUES[@]}
+DOWNSAMPLE_COUNT=${#DOWNSAMPLE_VALUES[@]}
+
+INDEX=$SLURM_ARRAY_TASK_ID
+
+
+
+
+DOWNSAMPLE_INDEX=$((INDEX % DOWNSAMPLE_COUNT))
+TMP_INDEX=$((INDEX / DOWNSAMPLE_COUNT))
+
+DF_INDEX=$((TMP_INDEX % DF_COUNT))
+TMP_INDEX=$((TMP_INDEX / DF_COUNT))
+
+N_LAYER_INDEX=$((TMP_INDEX  % N_LAYER_COUNT))
+TMP_INDEX=$((TMP_INDEX  / N_LAYER_COUNT))
+
+K_MAX_INDEX=$((TMP_INDEX  % K_MAX_COUNT))
+
+
+
+K_MAX=${K_MAX_VALUES[$K_MAX_INDEX]}
+N_LAYER=${N_LAYER_VALUES[$N_LAYER_INDEX]}
+DF=${DF_VALUES[$DF_INDEX]}
+DOWNSAMPLE=${DOWNSAMPLE_VALUES[$DOWNSAMPLE_INDEX]}
+
+
+python mno_train.py \
+    --n_train $N_TRAIN \
+    --k_max $K_MAX \
+    --n_layer $N_LAYER \
+    --df $DF \
+    --downsample $DOWNSAMPLE \
+    > logs/N${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}_df${DF}_downsample${DOWNSAMPLE}.log
+
+
+
+
