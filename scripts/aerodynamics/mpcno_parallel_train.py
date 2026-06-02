@@ -83,13 +83,13 @@ def train_ddp(rank, local_rank, world_size, args):
     # Note: All ranks need to load data, but we'll use DistributedSampler to distribute the data
     
     data = np.load(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz")
-    names_array = np.load(data_path+"/mpcno_data_names_list"+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npy", allow_pickle=True)
     
     
     nnodes, node_mask, nodes = data["nnodes"], data["node_mask"], data["nodes"]
     
     
     #！！！！！
+    # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
     Ls = [10.0, 4.0, 3.2]
     
     node_weights = data["node_measures"]

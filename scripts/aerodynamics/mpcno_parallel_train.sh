@@ -4,7 +4,7 @@
 #SBATCH -J MPCNO_parallel_train
 #SBATCH -p GPU80G
 #SBATCH --nodes=1 
-#SBATCH --ntasks=32
+#SBATCH --ntasks=16
 #SBATCH --gres=gpu:2
 #SBATCH --time=100:00:00
 
@@ -30,7 +30,7 @@ torchrun --nproc_per_node=2 --nnodes=1 --node_rank=0  --master_addr=$MASTER_ADDR
                                     --k_max 16 \
                                     --batch_size 4 \
                                     --epochs 500 \
-                                    --n_train 2000 \
-                                    --n_test 1000 \
+                                    --n_train 1000 \
+                                    --n_test 512 \
                                     --dx_scale 10.0 \
                                     > logs/MPCNO_n_train2000_nlayer6.log

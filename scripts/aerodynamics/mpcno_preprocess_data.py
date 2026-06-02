@@ -12,7 +12,7 @@ from mpcno_helper import (
 
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-from nn.geo_utility import preprocess_data_mesh, compute_node_weights, compute_outward_normals, element_features_to_vertices
+from nn.geo_utility import preprocess_data_mesh
 
 
 
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     
     print("Preprocessing data")
     nnodes, node_mask, nodes, node_measures_raw, features, directed_edges, edge_gradient_weights = preprocess_data_mesh(nodes_list, elems_list, features_list, mesh_type = mesh_type, adjacent_type="edge")
-    node_measures, _ = compute_node_weights(nnodes,  node_measures_raw,  equal_measure = False)
+    node_measures = np.nan_to_num(node_measures_raw, nan=0.0)
     np.savez_compressed(data_path+"/mpcno_data.npz", \
                         nnodes=nnodes, node_mask=node_mask, nodes=nodes, \
                         node_measures=node_measures, \

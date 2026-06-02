@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH -o MNO_train_3.out
+#SBATCH -o MNO_train_2.out
 #SBATCH --qos=low
-#SBATCH -J MNO_train_3
+#SBATCH -J MNO_train_2
 #SBATCH -p GPU80G
 #SBATCH --nodes=1 
 #SBATCH --ntasks=6
@@ -15,7 +15,7 @@ K_MAX=16
 N_LAYER=6
 DF=64
 DOWNSAMPLE=1
-N_ROLL_OUT=3
+N_ROLL_OUT=1
 python mno_train.py --n_train $N_TRAIN \
     --k_max $K_MAX \
     --n_layer $N_LAYER \

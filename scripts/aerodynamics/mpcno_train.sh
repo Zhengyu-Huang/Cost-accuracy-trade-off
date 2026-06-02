@@ -14,9 +14,9 @@ python pcno_geo_mixed_3d_train.py   --grad True \
                                     --geo True \
                                     --geointegral True \
                                     --k_max 16 \
-                                    --batch_size 5 \
+                                    --batch_size 8 \
                                     --epochs 500 \
                                     --n_train 1000 \
-                                    --n_test 500 \
+                                    --n_test 512 \
                                     --to_divide_factor 1.0 \
                                     > logs/PCNO_mixed_3d_grad_geo_vertex_centered.log

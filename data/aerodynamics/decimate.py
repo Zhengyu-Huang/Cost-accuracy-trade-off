@@ -128,6 +128,7 @@ def transfer_scalars_vtk_to_ply(input_vtk_file, ply_mesh_file, output_vtk_file):
     ply_mesh.GetPointData().SetScalars(new_scalars)
 
 
+    print("标量值后网格格点个数: ", ply_mesh.GetPoints().GetNumberOfPoints())
 
     print("正在统一法线方向，确保所有三角形法线向外...")
     normals_filter = vtk.vtkPolyDataNormals()
@@ -135,6 +136,7 @@ def transfer_scalars_vtk_to_ply(input_vtk_file, ply_mesh_file, output_vtk_file):
     normals_filter.SetConsistency(True)           # 使相邻面的法线方向一致
     normals_filter.SetAutoOrientNormals(True)     # 自动将法线翻转向外（适用于封闭网格）
     normals_filter.SetNonManifoldTraversal(True)  # 处理非流形边，增强对开放网格的鲁棒性
+    normals_filter.SetSplitting(False)            # 不分裂顶点
     normals_filter.SetFlipNormals(False)          # 不额外翻转
     normals_filter.Update()
     ply_mesh = normals_filter.GetOutput()         # 替换为法线统一后的网格
@@ -142,7 +144,7 @@ def transfer_scalars_vtk_to_ply(input_vtk_file, ply_mesh_file, output_vtk_file):
     print("法线统一完成")
 
 
-
+    print("最后网格格点个数: ", ply_mesh.GetPoints().GetNumberOfPoints())
     
     # 5. 保存为新的 VTK 文件
     writer = vtk.vtkPolyDataWriter()
@@ -237,7 +239,7 @@ if __name__ == "__main__":
     # python decimate.py "/lustre/home/2306192137/Cost-accuracy-trade-off/data/aerodynamics/PressureVTK/E_S_WWC_WM"                   \
     #                    "/lustre/home/2306192137/Cost-accuracy-trade-off/data/aerodynamics/PressurePLY/E_S_WWC_WM"                   \
     #                    "/lustre/home/2306192137/Cost-accuracy-trade-off/data/aerodynamics/PressurePLY_Processed/E_S_WWC_WM"         \
-    #                    "/lustre/home/2306192137/Cost-accuracy-trade-off/data/aerodynamics/PressureVTK_Processed/E_S_WWC_WM" 40000 
+    #                    "/lustre/home/2306192137/Cost-accuracy-trade-off/data/aerodynamics/test" 40000 
     # main()
     # input_vtk_file, ply_mesh_file, output_vtk_file = "E_S_WWC_WM_018.vtk", "E_S_WWC_WM_018_decimate.ply", "E_S_WWC_WM_018_decimate.vtk"
     # transfer_scalars_vtk_to_ply(input_vtk_file, ply_mesh_file, output_vtk_file)

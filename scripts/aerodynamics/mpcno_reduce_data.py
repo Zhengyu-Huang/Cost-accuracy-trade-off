@@ -37,7 +37,7 @@ if __name__ == "__main__":
     # random shuffle, and keep only n_train + n_test data
     data, names_list = random_shuffle(data, names_array, n_train, n_test, seed=42)
     
-    
+    print("max nnodes = ", np.max(data["nnodes"]))    
     np.savez(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz", **data)
 
     # np.savez_compressed(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz", \

@@ -78,6 +78,7 @@ if __name__ == "__main__":
     print(nnodes.shape,node_mask.shape,nodes.shape,flush = True)
     
     #！！！！！
+    # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
     Ls = [10.0, 4.0, 3.2]
 
     # TODO single measure 
