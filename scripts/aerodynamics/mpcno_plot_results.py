@@ -134,7 +134,6 @@ def plot_reduced_data(folder = "../../data/mixed_3d_add_elem_features", mesh_typ
     
     
 
-
 def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", n_train = 1000, n_test = 100, data_ids = None):
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -164,7 +163,7 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
     normalization_x = False
     normalization_y = True
 
-    save_model_name = f"models/MPCNO/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}"
+    save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}"
     
     f_in_dim, f_out_dim = 0, 1
     nnodes, node_mask, nodes = data["nnodes"], data["node_mask"], data["nodes"]
@@ -243,9 +242,11 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
 
 
     myloss = LpLoss(d=1, p=2, size_average=False)
+    rl1loss = LpLoss(d=1, p=1, size_average=False)
 
     if data_ids is None:
         test_rel_l2 = np.zeros(n_test)
+        test_rel_l1 = np.zeros(n_test)
         for i in range(n_test):
             x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo = x_test[[i],...], y_test[[i],...], aux_test[0][[i],...], aux_test[1][[i],...], aux_test[2][[i],...], aux_test[3][[i],...], aux_test[4][[i],...], aux_test[5][[i],...]
             x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo = x.to(device), y.to(device), node_mask.to(device), nodes.to(device), node_weights.to(device), directed_edges.to(device), edge_gradient_weights.to(device), geo.to(device)
@@ -258,16 +259,22 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
                 # y = y_normalizer.decode(y)
             out=out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
             test_rel_l2[i] = myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-            print("Test ", names_array[n_train+i] , " rel. L2 error ", test_rel_l2[i])
+            test_rel_l1[i] = rl1loss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+            print("Test ", names_array[n_train+i] , " rel. L2 error ", test_rel_l2[i], " rel. L1 error ", test_rel_l1[i])
 
-        np.save('test_rel_l2.npy', test_rel_l2)
+        np.save('data/test_rel_l2.npy', test_rel_l2)
+        np.save('data/test_rel_l1.npy', test_rel_l1)
     
-        largest_error_ind = np.argmax(test_rel_l2)
-        median_error_ind = get_median_index(test_rel_l2)  # Get the index (or indices)
-        print("largest error is ", test_rel_l2[largest_error_ind], " ; median error is ", test_rel_l2[median_error_ind])
-        print("largest error index is ", largest_error_ind, " ; median error index is ", median_error_ind)
+        largest_rl2_error_ind = np.argmax(test_rel_l2)
+        median_rl2_error_ind = get_median_index(test_rel_l2)  # Get the index (or indices)
+        largest_rl1_error_ind = np.argmax(test_rel_l1)
+        median_rl1_error_ind = get_median_index(test_rel_l1)  # Get the index (or indices)
+        print("largest rel. L2 error is ", test_rel_l2[largest_rl2_error_ind], " ; median rel. L2 error is ", test_rel_l2[median_rl2_error_ind])
+        print("largest rel. L2 error index is ", largest_rl2_error_ind, " ; median rel. L2 error index is ", median_rl2_error_ind)
+        print("largest rel. L1 error is ", test_rel_l1[largest_rl1_error_ind], " ; median rel. L1 error is ", test_rel_l1[median_rl1_error_ind])
+        print("largest rel. L1 error index is ", largest_rl1_error_ind, " ; median rel. L1 error index is ", median_rl1_error_ind)
         # they are only test data id
-        data_ids = [largest_error_ind + n_train, median_error_ind + n_train]
+        data_ids = [largest_rl2_error_ind + n_train, median_rl2_error_ind + n_train, largest_rl1_error_ind + n_train, median_rl1_error_ind + n_train]
         
         
         
@@ -310,7 +317,8 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
             out = y_normalizer.decode(out)
             # y = y_normalizer.decode(y)
         out=out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
-        print(vtk_file, "Error is : ", myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item())
+        print(vtk_file, " rel. L2 error ",  myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item(), 
+                        " rel. L1 error ", rl1loss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item())
         
 
        
@@ -341,13 +349,13 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
             }
         )
         
-        file_name = "predict_" + raw_data_id
+        file_name = "figs/predict_" + raw_data_id
         meshio.write(file_name, mesh)
-        
+
+
         
 # predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/",  n_train = 2000, n_test = 512, data_ids = [2101])
 predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/",  n_train = 2000, n_test = 512, data_ids = None)
-# predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = "vertex_centered", n_train = 1000, n_test = 100, data_ids = None)
 
 
 

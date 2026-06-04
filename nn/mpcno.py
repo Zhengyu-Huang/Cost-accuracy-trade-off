@@ -1037,9 +1037,9 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
     test_rel_l2_losses = []
     test_l2_losses = []
     
-    # ------------------------
+    # -----------------------------
     # Dataset / Sampler / Loader
-    # ------------------------
+    # -----------------------------
     node_mask_train, nodes_train, node_weights_train, directed_edges_train, edge_gradient_weights_train, geo_train = aux_train
     train_dataset = torch.utils.data.TensorDataset(x_train, y_train, node_mask_train, nodes_train, node_weights_train, directed_edges_train, edge_gradient_weights_train, geo_train)
     train_sampler = torch.utils.data.DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, seed=42, drop_last=False)
@@ -1176,3 +1176,19 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
     
     
     return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
+
+
+
+
+
+
+def mpcno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne):
+    c_sigma = 1.0
+    K = (2*k_max+1)**dim
+    C_lift = 2*ne*in_dim*fc_dim
+    C_proj = 2*ne*fc_dim*fc_dim + 2*ne*fc_dim*out_dim + c_sigma*ne*fc_dim
+    C_layer_stru = 10*fc_dim*ne*np.log2(ne) + K*(8*fc_dim*fc_dim - 2*fc_dim) + ((2*dim+4)*fc_dim*fc_dim + (2*dim+3+c_sigma)*fc_dim)*ne + fc_dim*ne
+    C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (3+c_sigma)*fc_dim)*ne + fc_dim*ne
+    
+    C_layer = C_layer_unstru 
+    return C_lift + C_proj + nlayer*C_layer

@@ -1176,7 +1176,7 @@ def setup_model(in_dim, out_dim, fc_dim, k_max, n_layer,
     return model
 
 
-def mno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, mesh_type="structured"):
+def mno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne):
     c_sigma = 1.0
     K = (2*k_max+1)**dim
     C_lift = 2*ne*in_dim*fc_dim
@@ -1184,5 +1184,5 @@ def mno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, mes
     C_layer_stru = 10*fc_dim*ne*np.log2(ne) + K*(8*fc_dim*fc_dim - 2*fc_dim) + ((2*dim+4)*fc_dim*fc_dim + (2*dim+3+c_sigma)*fc_dim)*ne + fc_dim*ne
     C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (3+c_sigma)*fc_dim)*ne + fc_dim*ne
     
-    C_layer = C_layer_stru if mesh_type=="structured" else C_layer_unstru 
+    C_layer = C_layer_stru
     return C_lift + C_proj + nlayer*C_layer
