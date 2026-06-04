@@ -1162,7 +1162,8 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
         
             if (ep %100 == 99) or (ep == epochs -1):    
                 if save_model_name:
-                    torch.save(model.state_dict(), save_model_name + ".pth")
+                    # The saved checkpoint is clean, without the "module." prefix.
+                    torch.save((model.module if hasattr(model, "module") else model).state_dict(), save_model_name + ".pth")
                     if normalization_x:
                         torch.save(x_normalizer.state_dict(), save_model_name + "_normalization_x.pth")
                     if normalization_y:

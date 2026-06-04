@@ -91,6 +91,7 @@ def train_ddp(rank, local_rank, world_size, args):
     #！！！！！
     # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
     Ls = [10.0, 4.0, 3.2]
+    # Ls = [7.0, 3.0, 2.0]
     
     node_weights = data["node_measures"]
     node_weight_scale = np.amax(np.sum(node_weights, axis=1))

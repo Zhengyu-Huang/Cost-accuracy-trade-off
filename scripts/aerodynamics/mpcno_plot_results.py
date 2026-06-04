@@ -3,12 +3,15 @@ import torch
 import os
 import sys
 import numpy as np
+import gc
 import matplotlib.pyplot as plt
+import vtk
+from vtk.util.numpy_support import vtk_to_numpy
+
 from matplotlib.ticker import FixedLocator, FixedFormatter
 plt.rcParams['font.family'] = 'Times New Roman'
 
-from pcno_geo_mixed_3d_helper import gen_data_tensors
-
+from mpcno_helper import gen_data_tensors
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from utility.normalizer import UnitGaussianNormalizer
@@ -132,7 +135,7 @@ def plot_reduced_data(folder = "../../data/mixed_3d_add_elem_features", mesh_typ
     
 
 
-def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = "vertex_centered", n_train = 1000, n_test = 100, data_ids = None):
+def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", n_train = 1000, n_test = 100, data_ids = None):
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -140,24 +143,51 @@ def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = 
     ##############################################
     # load data
     ##############################################
-    data = np.load(folder+"/pcno_mixed_3d_"+mesh_type+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz")
-    names_array = np.load(folder+"/pcno_mixed_3d_names_list"+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npy", allow_pickle=True)
+    data = np.load(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz")
     
-    to_divide_factor = 1.0
+    names_array = np.load(data_path+"/mpcno_data_names_list"+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npy", allow_pickle=True)
+    
+    
+    dx_scale = 10.0
+    k_max = 16
+    n_layer = 3
+    fc_dim = 64
+    layers = [fc_dim]*(n_layer+1)
+    layer_selection = {'grad': "true", 'geo': "true", 'geointegral': "true"}
+
+    #！！！！！
+    # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
+    Ls = [10.0, 4.0, 3.2]
+    # Ls = [7.0, 3.0, 2.0]
+
+    
+    normalization_x = False
+    normalization_y = True
+
+    save_model_name = f"models/MPCNO/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}"
+    
     f_in_dim, f_out_dim = 0, 1
     nnodes, node_mask, nodes = data["nnodes"], data["node_mask"], data["nodes"]
     print(nnodes.shape,node_mask.shape,nodes.shape,flush = True)
-    node_weights = data["node_measures"]
     
-    to_divide = to_divide_factor * np.amax(np.sum(node_weights, axis = 1))
-    print('Node weights are devided by factor ', to_divide.item())
-    node_weights = node_weights / to_divide
-    node_measures = data["node_measures"]
-    directed_edges, edge_gradient_weights = data["directed_edges"], data["edge_gradient_weights"]
+    node_weights = data["node_measures"]
+    node_weight_scale = np.amax(np.sum(node_weights, axis=1))
+    node_weights = node_weights / node_weight_scale  
+    
+    node_weights = node_weights[...,0]
+
+
+    directed_edges, edge_gradient_weights = data["directed_edges"], data["edge_gradient_weights"] / dx_scale
     features = data["features"]
 
     ndata = nodes.shape[0]
     assert(ndata == n_train + n_test)
+
+    # delete data and release its memory
+    del data
+    gc.collect()
+
+
     print(f"ndata: {ndata},  n_train: {n_train}, n_test: {n_test}", flush=True)
         
 
@@ -176,49 +206,41 @@ def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = 
     x_test, y_test, aux_test = gen_data_tensors(np.arange(-n_test, 0), nodes, features, node_mask, node_weights, directed_edges, edge_gradient_weights, f_in_dim, f_out_dim)
 
 
-    print(f'x_train shape {x_train.shape}, x_test shape {x_train.shape}, y_train shape {y_train.shape}, y_test shape {y_train.shape}', flush = True)
-    print('length of each dim: ',torch.amax(nodes, dim = [0,1]) - torch.amin(nodes, dim = [0,1]), flush = True)
 
-    #！！！！！
-    Ls = [4.1, 4.1, 1.5]
+    print(f'x_train shape {x_train.shape}, x_test shape {x_test.shape}, y_train shape {y_train.shape}, y_test shape {y_train.shape}', flush = True)
+    print('length of each dim: ',torch.amax(nodes, dim = [0,1]) - torch.amin(nodes, dim = [0,1]), flush = True)
+    print(f'kmax = {k_max}')
+    print(f'n_train = {n_train}, n_test = {n_test}')
+    print(f'Ls = {Ls}')
+    print(f'layer_selection = {layer_selection}')
+    print(f'layers = {layers}')
+    
+
+    
+
+
     k_max = 16
     ndim = 3
-    
     modes = compute_Fourier_modes(ndim, [k_max, k_max, k_max], Ls)
     modes = torch.tensor(modes, dtype=torch.float).to(device)
-    model = PCNO(ndim, modes, nmeasures=1, 
-    layer_selection = {'grad': "true", 'geo': "true", 'geointegral': "true"},
-                layers=[64,64,64,64,64,64],
-                fc_dim=128,
+    model = MPCNO(ndim, modes, 
+                layer_selection = layer_selection,
+                layers=layers,
+                fc_dim=fc_dim,
                 in_dim=x_train.shape[-1], out_dim=y_train.shape[-1],
-                inv_L_scale_hyper = [False, 0.5, 2.0],
                 act = 'gelu',
                 ).to(device)
     
-    checkpoint = torch.load('checkpoint_parallel.pth', map_location='cpu')
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(torch.load(save_model_name+".pth", map_location="cpu"))
     model = model.to(device)
     
     
-    
-    normalization_x = False
-    normalization_y = True
-    normalization_dim_x = []
-    normalization_dim_y = []
-    non_normalized_dim_x = 4
-    non_normalized_dim_y = 0
 
-    if normalization_x:
-        x_normalizer = UnitGaussianNormalizer(x_train, non_normalized_dim = non_normalized_dim_x, normalization_dim=normalization_dim_x)
-        x_train = x_normalizer.encode(x_train)
-        x_test = x_normalizer.encode(x_test)
-        x_normalizer.to(device)
-        
-    if normalization_y:
-        y_normalizer = UnitGaussianNormalizer(y_train, non_normalized_dim = non_normalized_dim_y, normalization_dim=normalization_dim_y)
-        y_train = y_normalizer.encode(y_train)
-        y_test = y_normalizer.encode(y_test)
-        y_normalizer.to(device)
+    
+    x_normalizer = UnitGaussianNormalizer.from_state_dict(torch.load(save_model_name + "_normalization_x.pth", map_location="cpu", weights_only=True,), device=device) if normalization_x else None
+    y_normalizer = UnitGaussianNormalizer.from_state_dict(torch.load(save_model_name + "_normalization_y.pth", map_location="cpu", weights_only=True,), device=device) if normalization_y else None
+      
+
 
     myloss = LpLoss(d=1, p=2, size_average=False)
 
@@ -233,10 +255,11 @@ def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = 
 
             if normalization_y:
                 out = y_normalizer.decode(out)
-                y = y_normalizer.decode(y)
+                # y = y_normalizer.decode(y)
             out=out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
             test_rel_l2[i] = myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-        
+            print("Test ", names_array[n_train+i] , " rel. L2 error ", test_rel_l2[i])
+
         np.save('test_rel_l2.npy', test_rel_l2)
     
         largest_error_ind = np.argmax(test_rel_l2)
@@ -254,13 +277,24 @@ def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = 
         ################################################
         # load raw data to get elems, vertices
         ################################################
-        raw_data_category, raw_data_subcategory, raw_data_id = names_array[data_id].split('-')
-        raw_data_id = int(raw_data_id)
-        print("Visualize ", raw_data_category, " ", raw_data_subcategory, " ", raw_data_id)
-        raw_data_file = folder + "/" + raw_data_category + "/" + raw_data_subcategory + "/" + str(raw_data_id).zfill(4) + ".npz"
-        raw_data = np.load(raw_data_file)
-        elems = raw_data["elems_list"]
-        vertices = raw_data["nodes_list"]
+        _, raw_data_id = names_array[data_id].split("/")
+        vtk_file = os.path.join(data_path, names_array[data_id])
+        reader = vtk.vtkPolyDataReader()
+        reader.SetFileName(vtk_file)
+        reader.Update()
+        polydata = reader.GetOutput()
+        # coordinates
+        points = polydata.GetPoints()
+        num_points = points.GetNumberOfPoints()
+        vertices = np.array([points.GetPoint(i) for i in range(num_points)])
+        # elements（假设全是三角形）
+        polys = polydata.GetPolys()   # vtkCellArray
+        # 转换为 numpy 数组
+        cell_array = vtk_to_numpy(polys.GetData())
+        # 解析：数组结构为 [3, id0, id1, id2, 3, id0, id1, id2, ...]
+        elems = cell_array.reshape(-1, 4)[:,1:] 
+
+
         
         
         if data_id < n_train:
@@ -274,9 +308,9 @@ def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = 
         out = model(x, (node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo)) #.reshape(batch_size_,  -1)
         if normalization_y:
             out = y_normalizer.decode(out)
-            y = y_normalizer.decode(y)
+            # y = y_normalizer.decode(y)
         out=out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
-        print("Error is : ", myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item())
+        print(vtk_file, "Error is : ", myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item())
         
 
        
@@ -294,7 +328,7 @@ def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = 
 
         # Convert elements to meshio-compatible format
         cells = []
-        cells.append(("triangle", elems[:,1:]))
+        cells.append(("triangle", elems))
 
         # Create the mesh
         mesh = meshio.Mesh(
@@ -307,9 +341,13 @@ def predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = 
             }
         )
         
-        file_name = "predict_" + mesh_type + "_" + raw_data_category + "_" + raw_data_subcategory + "_" + str(raw_data_id).zfill(4)
-        meshio.write(file_name+ ".vtk", mesh)
+        file_name = "predict_" + raw_data_id
+        meshio.write(file_name, mesh)
         
         
-predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = "vertex_centered", n_train = 1000, n_test = 100, data_ids = [101,123,400])
+# predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/",  n_train = 2000, n_test = 512, data_ids = [2101])
+predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/",  n_train = 2000, n_test = 512, data_ids = None)
 # predict_error(folder = "../../data/mixed_3d_add_elem_features", mesh_type = "vertex_centered", n_train = 1000, n_test = 100, data_ids = None)
+
+
+
