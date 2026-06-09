@@ -714,13 +714,14 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
     assert len(x_test_list) == len(y_test_list) == len(aux_test_list), "The length of x_test_list, y_test_list and aux_test_list should be the same"
     n_distributions = len(x_test_list)
     n_train= x_train.shape[0]
-    train_rel_l2_losses = []
-    test_rel_l2_losses = []
+    train_rel_lp_losses = []
+    test_rel_lp_losses = []
     test_l2_losses = []
     normalization_x, normalization_y = config["train"]["normalization_x"], config["train"]["normalization_y"]
     normalization_dim_x, normalization_dim_y = config["train"]["normalization_dim_x"], config["train"]["normalization_dim_y"]
     non_normalized_dim_x, non_normalized_dim_y = config["train"]["non_normalized_dim_x"], config["train"]["non_normalized_dim_y"]
-    
+    loss_p = config["train"]["loss_p"]
+
     ndims = model.ndims # n_train, size, n_channel
     print("In MPCNO_train, ndims = ", ndims)
     
@@ -767,7 +768,7 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
         test_loaders.append((name, sub_loader))
   
     
-    myloss = LpLoss(d=1, p=2, size_average=False)
+    myloss = LpLoss(d=1, p=loss_p, size_average=False)
 
     optimizer = Adam(model.parameters(), betas=(0.9, 0.999),
                      lr=config['train']['base_lr'], weight_decay=config['train']['weight_decay'])
@@ -783,7 +784,7 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
 
     for ep in range(current_epoch, epochs):
         t1 = default_timer()
-        train_rel_l2 = 0
+        train_rel_lp = 0
 
         model.train()
         for x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo in train_loader:
@@ -804,17 +805,17 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
             
             scheduler.step()
             
-            train_rel_l2 += loss.item()
+            train_rel_lp += loss.item()
 
 
-        test_rel_l2_dict = {}
+        test_rel_lp_dict = {}
         test_l2_dict = {}
 
         model.eval()
         with torch.no_grad():
             for name, loader in test_loaders:
                 test_l2 = 0
-                test_rel_l2 = 0
+                test_rel_lp = 0
 
                 for x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo in loader:
                     x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo = x.to(device), y.to(device), node_mask.to(device), nodes.to(device), node_weights.to(device), directed_edges.to(device), edge_gradient_weights.to(device), geo.to(device)
@@ -826,26 +827,26 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
                         out = y_normalizer.decode(out)
                         y = y_normalizer.decode(y)
                     out = out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
-                    test_rel_l2 += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+                    test_rel_lp += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
                     test_l2 += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
                 test_l2 /= len(loader.dataset)
-                test_rel_l2 /= len(loader.dataset)
-                test_rel_l2_dict[name] = test_rel_l2
+                test_rel_lp /= len(loader.dataset)
+                test_rel_lp_dict[name] = test_rel_lp
                 test_l2_dict[name] = test_l2
     
 
         
 
-        train_rel_l2/= n_train
+        train_rel_lp/= n_train
 
-        train_rel_l2_losses.append(train_rel_l2)
-        test_rel_l2_losses.append(test_rel_l2_dict)
+        train_rel_lp_losses.append(train_rel_lp)
+        test_rel_lp_losses.append(test_rel_lp_dict)
         test_l2_losses.append(test_l2_dict)
     
 
         t2 = default_timer()
 
-        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2_dict, " Test L2 Loss : ", test_l2_dict,  flush=True)
+        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L" + str(int(loss_p)) + " Loss : ", train_rel_lp, " Rel. Test L" + str(int(loss_p)) + " Loss : ", test_rel_lp_dict, " Test L" + str(int(loss_p)) + " Loss : ", test_l2_dict,  flush=True)
         if (ep %100 == 99) or (ep == epochs -1):    
             if save_model_name:
                 torch.save(model.state_dict(), save_model_name + ".pth")
@@ -858,7 +859,7 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
             
     
     
-    return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
+    return train_rel_lp_losses, test_rel_lp_losses, test_l2_losses
 
 
 
@@ -871,13 +872,14 @@ def MPCNO_train_multidist(x_train, aux_train, y_train, x_test_list, aux_test_lis
 # x_train, y_train, x_test, y_test are [n_data, n_x, n_channel] arrays
 def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, model, save_model_name="./MPCNO_model", checkpoint_path=None):
     n_train, n_test = x_train.shape[0], x_test.shape[0]
-    train_rel_l2_losses = []
-    test_rel_l2_losses = []
+    train_rel_lp_losses = []
+    test_rel_lp_losses = []
     test_l2_losses = []
     normalization_x, normalization_y = config["train"]["normalization_x"], config["train"]["normalization_y"]
     normalization_dim_x, normalization_dim_y = config["train"]["normalization_dim_x"], config["train"]["normalization_dim_y"]
     non_normalized_dim_x, non_normalized_dim_y = config["train"]["non_normalized_dim_x"], config["train"]["non_normalized_dim_y"]
-    
+    loss_p = config["train"]["loss_p"]
+
     ndims = model.ndims # n_train, size, n_channel
     print("In MPCNO_train, ndims = ", ndims)
     
@@ -904,7 +906,7 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_test, y_test, node_mask_test, nodes_test, node_weights_test, directed_edges_test, edge_gradient_weights_test, geo_test), 
                                                batch_size=config['train']['batch_size'], shuffle=False)
     
-    myloss = LpLoss(d=1, p=2, size_average=False)
+    myloss = LpLoss(d=1, p=loss_p, size_average=False)
 
     optimizer = Adam(model.parameters(), betas=(0.9, 0.999),
                      lr=config['train']['base_lr'], weight_decay=config['train']['weight_decay'])
@@ -921,7 +923,7 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
 
     for ep in range(current_epoch, epochs):
         t1 = default_timer()
-        train_rel_l2 = 0
+        train_rel_lp = 0
 
         model.train()
         for x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo in train_loader:
@@ -940,10 +942,10 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
             optimizer.step()
             scheduler.step()
             
-            train_rel_l2 += loss.item()
+            train_rel_lp += loss.item()
 
         test_l2 = 0
-        test_rel_l2 = 0
+        test_rel_lp = 0
 
 
         model.eval()
@@ -958,7 +960,7 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
                     out = y_normalizer.decode(out)
                     y = y_normalizer.decode(y)
                 out = out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
-                test_rel_l2 += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+                test_rel_lp += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
                 test_l2 += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
 
 
@@ -966,16 +968,16 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
 
         
 
-        train_rel_l2/= n_train
+        train_rel_lp/= n_train
         test_l2 /= n_test
-        test_rel_l2/= n_test
-        train_rel_l2_losses.append(train_rel_l2)
-        test_rel_l2_losses.append(test_rel_l2)
+        test_rel_lp/= n_test
+        train_rel_lp_losses.append(train_rel_lp)
+        test_rel_lp_losses.append(test_rel_lp)
         test_l2_losses.append(test_l2)
     
 
         t2 = default_timer()
-        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2,  flush=True)
+        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L" + str(int(loss_p)) + " Loss : ", train_rel_lp, " Rel. Test L" + str(int(loss_p)) + " Loss : ", test_rel_lp, " Test L" + str(int(loss_p)) + " Loss : ", test_l2,  flush=True)
         if (ep %100 == 99) or (ep == epochs -1):    
             if save_model_name:
                 torch.save(model.state_dict(), save_model_name + ".pth")
@@ -986,7 +988,7 @@ def MPCNO_train(x_train, aux_train, y_train, x_test, aux_test, y_test, config, m
           
     
     
-    return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
+    return train_rel_lp_losses, test_rel_lp_losses, test_l2_losses
 
 
 
@@ -1020,6 +1022,7 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
     normalization_x, normalization_y = config["train"]["normalization_x"], config["train"]["normalization_y"]
     normalization_dim_x, normalization_dim_y = config["train"]["normalization_dim_x"], config["train"]["normalization_dim_y"]
     non_normalized_dim_x, non_normalized_dim_y = config["train"]["non_normalized_dim_x"], config["train"]["non_normalized_dim_y"]
+    loss_p = config["train"]["loss_p"]
     
     if normalization_x:
         x_normalizer = UnitGaussianNormalizer(x_train, non_normalized_dim = non_normalized_dim_x, normalization_dim=normalization_dim_x)
@@ -1033,8 +1036,8 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
         y_test = y_normalizer.encode(y_test)
         y_normalizer.to(device)
 
-    train_rel_l2_losses = []
-    test_rel_l2_losses = []
+    train_rel_lp_losses = []
+    test_rel_lp_losses = []
     test_l2_losses = []
     
     # -----------------------------
@@ -1053,7 +1056,7 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
     
 
 
-    myloss = LpLoss(d=1, p=2, size_average=False)
+    myloss = LpLoss(d=1, p=loss_p, size_average=False)
 
     optimizer = Adam(model.parameters(), betas=(0.9, 0.999),
                      lr=config['train']['base_lr'], weight_decay=config['train']['weight_decay'])
@@ -1073,15 +1076,15 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
         print(f"Effective batch size: {config['train']['batch_size'] * world_size}")
         print(f"Training batches per GPU: {len(train_loader)}")
         print(f"Test batches per GPU: {len(test_loader)}")
-        
-        
+        print(f"Loss function: L {loss_p} loss") 
+           
 
 
     for ep in range(current_epoch, epochs):
         train_sampler.set_epoch(ep)
         
         t1 = default_timer()
-        train_rel_l2 = 0.0
+        train_rel_lp = 0.0
         num_train_samples = 0
         
         model.train()
@@ -1103,21 +1106,21 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
             loss.backward()
             optimizer.step()
             scheduler.step()
-            train_rel_l2 += loss.item()
+            train_rel_lp += loss.item()
             num_train_samples += batch_size_
             
         # synchronize train error
-        train_rel_l2_tensor = torch.tensor(train_rel_l2, device=device)
+        train_rel_lp_tensor = torch.tensor(train_rel_lp, device=device)
         train_count_tensor = torch.tensor(num_train_samples, device=device)
-        dist.all_reduce(train_rel_l2_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(train_rel_lp_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(train_count_tensor, op=dist.ReduceOp.SUM)
-        train_rel_l2 = train_rel_l2_tensor.item() / train_count_tensor.item()
+        train_rel_lp = train_rel_lp_tensor.item() / train_count_tensor.item()
         
         
         # TEST
         model.eval()
         test_l2 = 0.0
-        test_rel_l2 = 0.0
+        test_rel_lp = 0.0
         num_test_samples = 0
         with torch.no_grad():
             for x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo in test_loader:
@@ -1130,34 +1133,34 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
                     out = y_normalizer.decode(out)
                     y = y_normalizer.decode(y)
                 out = out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
-                test_rel_l2 += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+                test_rel_lp += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
                 test_l2 += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
                 num_test_samples += batch_size_
                 
             # synchronize train error
             test_l2_tensor = torch.tensor(test_l2, device=device)
-            test_rel_l2_tensor = torch.tensor(test_rel_l2, device=device)
+            test_rel_lp_tensor = torch.tensor(test_rel_lp, device=device)
             test_count_tensor = torch.tensor(num_test_samples, device=device)
-            dist.all_reduce(test_rel_l2_tensor, op=dist.ReduceOp.SUM)
+            dist.all_reduce(test_rel_lp_tensor, op=dist.ReduceOp.SUM)
             dist.all_reduce(test_l2_tensor, op=dist.ReduceOp.SUM)
             dist.all_reduce(test_count_tensor, op=dist.ReduceOp.SUM)
 
             test_l2 = test_l2_tensor.item() / test_count_tensor.item()
-            test_rel_l2 = test_rel_l2_tensor.item() / test_count_tensor.item()
+            test_rel_lp = test_rel_lp_tensor.item() / test_count_tensor.item()
 
 
 
         
         
-        train_rel_l2_losses.append(train_rel_l2)
-        test_rel_l2_losses.append(test_rel_l2)
+        train_rel_lp_losses.append(train_rel_lp)
+        test_rel_lp_losses.append(test_rel_lp)
         test_l2_losses.append(test_l2)
     
 
         t2 = default_timer()
         
         if rank == 0:
-            print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2, flush=True)
+            print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L" + str(int(loss_p)) + " Loss : ", train_rel_lp, " Rel. Test L" + str(int(loss_p)) + " Loss : ", test_rel_lp, " Test L" + str(int(loss_p)) + " Loss : ", test_l2, flush=True)
         
         
             if (ep %100 == 99) or (ep == epochs -1):    
@@ -1175,7 +1178,7 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
         dist.barrier()
     
     
-    return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
+    return train_rel_lp_losses, test_rel_lp_losses, test_l2_losses
 
 
 

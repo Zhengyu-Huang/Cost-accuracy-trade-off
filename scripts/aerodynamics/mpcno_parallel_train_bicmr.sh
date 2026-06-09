@@ -19,20 +19,20 @@ echo "Master port: $MASTER_PORT"
 echo "Number of GPUs: $(nvidia-smi -L | wc -l)"
 
  
-N_TRAIN=2000
+N_TRAIN=4000
 K_MAX=16
-N_LAYER=5
+N_LAYER=4
 
 
 torchrun --nproc_per_node=2 --nnodes=1 --node_rank=0  --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
                                     mpcno_parallel_train.py \
                                     --grad True \
-                                    --geo False \
-                                    --geointegral False \
+                                    --geo True \
+                                    --geointegral True \
                                     --n_layer $N_LAYER \
                                     --k_max $K_MAX \
                                     --batch_size 4 \
-                                    --epochs 500 \
+                                    --epochs 200 \
                                     --n_train $N_TRAIN \
                                     --n_test 512 \
                                     --dx_scale 10.0 \
