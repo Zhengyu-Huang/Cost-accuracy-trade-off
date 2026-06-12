@@ -15,7 +15,7 @@ from mpcno_helper import gen_data_tensors
 
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
+from nn.geo_utility import compute_node_weight_scale
 from nn.mpcno import compute_Fourier_modes, MPCNO, MPCNO_train_parallel
 
 torch.set_printoptions(precision=16)
@@ -94,7 +94,7 @@ def train_ddp(rank, local_rank, world_size, args):
     # Ls = [7.0, 3.0, 2.0]
     
     node_weights = data["node_measures"]
-    node_weight_scale = np.amax(np.sum(node_weights, axis=1))
+    node_weight_scale = compute_node_weight_scale(2, Ls)   #np.amax(np.sum(node_weights, axis=1))
     node_weights = node_weights / node_weight_scale  
     
     node_weights = node_weights[...,0]

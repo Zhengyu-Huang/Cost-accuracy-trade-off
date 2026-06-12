@@ -4,7 +4,7 @@
 #SBATCH -J MPCNO_parallel_train
 #SBATCH -p GPU80G
 #SBATCH --nodes=1 
-#SBATCH --ntasks=16
+#SBATCH --ntasks=32
 #SBATCH --gres=gpu:2
 #SBATCH --time=100:00:00
 
@@ -21,16 +21,21 @@ echo "Master port: $MASTER_PORT"
 echo "Number of GPUs: $(nvidia-smi -L | wc -l)"
 
 
+N_TRAIN=4000
+K_MAX=16
+N_LAYER=4
+
+
 torchrun --nproc_per_node=2 --nnodes=1 --node_rank=0  --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
                                     mpcno_parallel_train.py \
                                     --grad True \
                                     --geo True \
                                     --geointegral True \
-                                    --n_layer 6 \
-                                    --k_max 16 \
+                                    --n_layer $N_LAYER \
+                                    --k_max $K_MAX \
                                     --batch_size 4 \
-                                    --epochs 500 \
-                                    --n_train 1000 \
+                                    --epochs 200 \
+                                    --n_train $N_TRAIN \
                                     --n_test 512 \
                                     --dx_scale 10.0 \
-                                    > logs/MPCNO_n_train2000_nlayer6.log
+                                    > logs/MPCNO_n_train${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}.log

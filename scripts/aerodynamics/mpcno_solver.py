@@ -32,10 +32,10 @@ def mpcno_solver(save_model_name, data_vtk_file):
     
     dx_scale = 10.0
     k_max = 16
-    n_layer = 3
+    n_layer = 4
     fc_dim = 64
     layers = [fc_dim]*(n_layer+1)
-    layer_selection = {'grad': "true", 'geo': "true", 'geointegral': "true"}
+    layer_selection = {'grad': True, 'geo': True, 'geointegral': True}
 
     #！！！！！
     # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
@@ -56,7 +56,7 @@ def mpcno_solver(save_model_name, data_vtk_file):
                 layer_selection = layer_selection,
                 layers=layers,
                 fc_dim=fc_dim,
-                in_dim=f_in_dim, out_dim=f_out_dim,
+                in_dim=f_in_dim+2*ndim, out_dim=f_out_dim,
                 act = 'gelu',
                 ).to(device)
     
@@ -81,7 +81,7 @@ def mpcno_solver(save_model_name, data_vtk_file):
     
 
     node_weights = np.nan_to_num(node_measures_raw, nan=0.0)
-    node_weight_scale = np.amax(np.sum(node_weights, axis=1))
+    node_weight_scale = 40.32200687398325 #np.amax(np.sum(node_weights, axis=1))
     node_weights = node_weights / node_weight_scale  
     node_weights = node_weights[...,0]
     edge_gradient_weights /= dx_scale
@@ -181,7 +181,10 @@ def mpcno_solver(save_model_name, data_vtk_file):
         }
     )
     
-    file_name = "figs/predict_" + data_vtk_file
+    
+    idx = data_vtk_file.rfind("/")
+    file_name = data_vtk_file[:idx+1] + "predicted_" + data_vtk_file[idx+1:]
+    print("save data file: ", file_name)
     meshio.write(file_name, mesh)
         
 
@@ -189,7 +192,7 @@ def mpcno_solver(save_model_name, data_vtk_file):
 
 
 
-def cost_accuracy_mpcno_solver_helper(device, save_model_name, data_path, n_train = 1000, n_test = 100, n_trial = 10):
+def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4, n_train = 1000, n_test = 100, n_trial = 10):
 
     ##############################################
     # load data
@@ -200,11 +203,11 @@ def cost_accuracy_mpcno_solver_helper(device, save_model_name, data_path, n_trai
     
     
     dx_scale = 10.0
-    k_max = 16
-    n_layer = 3
+    # k_max = 16
+    # n_layer = 3
     fc_dim = 64
     layers = [fc_dim]*(n_layer+1)
-    layer_selection = {'grad': "true", 'geo': "true", 'geointegral': "true"}
+    layer_selection = {'grad': True, 'geo': True, 'geointegral': True}
 
     #！！！！！
     # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
@@ -267,7 +270,6 @@ def cost_accuracy_mpcno_solver_helper(device, save_model_name, data_path, n_trai
     print(f'layers = {layers}')
     
 
-    k_max = 16
     ndim = 3
     modes = compute_Fourier_modes(ndim, [k_max, k_max, k_max], Ls)
     modes = torch.tensor(modes, dtype=torch.float).to(device)
@@ -315,7 +317,7 @@ def cost_accuracy_mpcno_solver_helper(device, save_model_name, data_path, n_trai
         
         accuracy[i,0] = myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
         accuracy[i,1] = rl1loss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-        cost[i,0] = mpcno_floating_point_cost(ndim, f_in_dim, f_out_dim, k_max, fc_dim, n_layer, np.sum(node_mask))
+        cost[i,0] = mpcno_floating_point_cost(ndim, f_in_dim, f_out_dim, k_max, fc_dim, n_layer, node_mask.sum().item())
         cost[i,1] = solve_time
 
                     
@@ -323,7 +325,7 @@ def cost_accuracy_mpcno_solver_helper(device, save_model_name, data_path, n_trai
         print("Test ", names_array[n_train+i] , " rel. L2 error ", accuracy[i,0], " rel. L1 error ", accuracy[i,1], "cost : ", cost[i,1])
 
        
-        return 
+        return cost, accuracy
 
 
 
@@ -334,13 +336,13 @@ def cost_accuracy_mpcno_solver(n_layer_values):
     accuracy_array = np.zeros((len(n_layer_values),  n_trial, 2))
     
     
-    data_path = "../../data/aerodynamics/PressureVTK_Processed"
+    data_path = "../../data/aerodynamics/PressureVTK_Processed_20000"
         
     for n_layer_index, n_layer in enumerate(n_layer_values):
         save_model_name = f"models/MNO_model_N{n_train}_k16_nlayer{n_layer}.pth"
-        for device in [torch.device('cuda') , torch.device('cpu')]:
-            cost, accuracy  = cost_accuracy_mpcno_solver_helper(device, save_model_name, data_path, n_train = n_train, n_test = n_test, n_trial = n_trial)
-            cost_array[n_layer_index, :, :, :, :, 0] = cost[...,0]
+        for device in [torch.device('cpu') , torch.device('cpu')]:
+            cost, accuracy  = cost_accuracy_mpcno_solver_helper(device, data_path, k_max=16, n_layer=n_layer, n_train = n_train, n_test = n_test, n_trial = n_trial)
+            cost_array[n_layer_index, ..., 0] = cost[...,0]
             if device.type == 'cpu':
                 cost_array[n_layer_index, ..., 1] = cost[...,1]
             else:
@@ -356,9 +358,11 @@ def cost_accuracy_mpcno_solver(n_layer_values):
 
 
 if __name__ == "__main__":
-    save_model_name =  "models/MNO_model_N2000_k16_nlayer3.pth"
-    data_vtk_file = "data/openfoam_L_decimate.vtk"
-    mpcno_solver(save_model_name, data_vtk_file)
+    # save_model_name =  "models/MNO_model_N2000_k16_nlayer4"
+    # # data_vtk_file = "data/openfoam_L_decimate.vtk"
+    # data_vtk_file = "data/F_D_WM_WW_0057.vtk"
+    # mpcno_solver(save_model_name, data_vtk_file)
     
-    cost_accuracy_mpcno_solver([3,4,5])
+    # cost_accuracy_mpcno_solver([3,4,5])
+    cost_accuracy_mpcno_solver([4])
     

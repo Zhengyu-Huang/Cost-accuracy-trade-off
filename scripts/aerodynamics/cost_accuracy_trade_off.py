@@ -38,9 +38,9 @@ def cost_accuracy_plot():
 
     # n_mesh by 2
     mean_cost_traditional_solver = np.array([[cost_traditional_solver(440405, 1000), cost_traditional_solver(2982335, 1000), cost_traditional_solver(22551532, 1000), cost_traditional_solver(22551532, 2000)],
-                                             [557, 975, 1913/2, 1913]])
+                                             [557, 975, 1913, 3793]])
     # n_mesh by 1
-    mean_accuracy_traditional_solver = np.array( [0.1, 0.1, 0.1, 0.1])
+    mean_accuracy_traditional_solver = np.array( [0.2000   ,  0.1593  ,  0.1185,  None])
 
 
     fig, axs = plt.subplots(1, 2, figsize=(12, 6))
@@ -126,4 +126,3 @@ def cost_accuracy_plot():
         
 if __name__ == "__main__":
     cost_accuracy_plot()
-    # nrollouts_plot()

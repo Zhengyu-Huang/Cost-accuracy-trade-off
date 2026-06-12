@@ -6,5 +6,6 @@
 #SBATCH --time=120:00:00
 #SBATCH -o logs/decimate.out
 
-
-python decimate.py "data/openfoam_L.vtk" "data/openfoam_L_decimate.vtk" 20000
+module load conda
+source activate meshlab
+python decimate.py "/lustre/home/2306192137/OpenFOAM/drivaerFastback_L/postProcessing/car/4000/patch.vtk" "data/openfoam_L_decimate.vtk" 20000
