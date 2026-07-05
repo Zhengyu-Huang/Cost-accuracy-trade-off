@@ -24,7 +24,7 @@ echo "Number of GPUs: $(nvidia-smi -L | wc -l)"
 N_TRAIN=4000
 K_MAX=16
 N_LAYER=4
-
+N_POINT=10000
 
 torchrun --nproc_per_node=2 --nnodes=1 --node_rank=0  --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
                                     mpcno_parallel_train.py \
@@ -38,4 +38,5 @@ torchrun --nproc_per_node=2 --nnodes=1 --node_rank=0  --master_addr=$MASTER_ADDR
                                     --n_train $N_TRAIN \
                                     --n_test 512 \
                                     --dx_scale 10.0 \
-                                    > logs/MPCNO_n_train${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}.log
+                                    --n_point $N_POINT
+                                    > logs/MPCNO_n_train${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}_npoint${N_POINT}.log

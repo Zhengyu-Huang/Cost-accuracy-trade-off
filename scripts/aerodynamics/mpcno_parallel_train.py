@@ -65,6 +65,7 @@ def train_ddp(rank, local_rank, world_size, args):
     layers = [64]*(n_layer+1)
     act = args.act
     dx_scale = args.dx_scale
+    n_point = args.n_point
     n_train = args.n_train
     n_test  = args.n_test
     
@@ -76,9 +77,9 @@ def train_ddp(rank, local_rank, world_size, args):
     ###################################
     # load all data (CPU only)
     ###################################
-    save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}"
+    save_model_name = f"models/MPCNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_npoint{n_point}"
     
-    data_path = "../../data/aerodynamics/PressureVTK_Processed"
+    data_path = "../../data/aerodynamics/PressureVTK_Processed_"+str(n_point)
     # load data n_train + n_test
     # Note: All ranks need to load data, but we'll use DistributedSampler to distribute the data
     
@@ -206,6 +207,7 @@ def main():
     parser.add_argument('--act', type=str, default="gelu")
     parser.add_argument('--n_layer', type=int, default=6)
     parser.add_argument('--dx_scale', type=float, default=10.0)
+    parser.add_argument('--n_point', type=int, default=10000)
     
     args = parser.parse_args()
     

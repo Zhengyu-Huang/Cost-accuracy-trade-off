@@ -15,19 +15,21 @@ if __name__ == "__main__":
 
     parser.add_argument('--n_train', type=int, default=900)
     parser.add_argument('--n_test', type=int, default=100)
+    parser.add_argument('--n_point', type=int, default=10000)
     
     args = parser.parse_args()
 
 
     n_train = args.n_train
     n_test  = args.n_test
+    n_point  = args.n_point
     mesh_type = 'vertex_centered'
 
 
     ###################################
     # load data
     ###################################
-    data_path = "../../data/aerodynamics/PressureVTK_Processed"
+    data_path = "../../data/aerodynamics/PressureVTK_Processed_" + str(n_point)
  
     # load data n_train + n_test
     equal_weights = False
@@ -39,12 +41,6 @@ if __name__ == "__main__":
     
     print("max nnodes = ", np.max(data["nnodes"]))    
     np.savez(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz", **data)
-
-    # np.savez_compressed(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz", \
-    #                     nnodes=data["nnodes"], node_mask=data["node_mask"], nodes=data["nodes"], \
-    #                     node_measures=data["node_measures"], \
-    #                     features=data["features"], \
-    #                     directed_edges=data["directed_edges"], edge_gradient_weights=data["edge_gradient_weights"]) 
 
     np.save(os.path.join(data_path, "mpcno_data_names_list"+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npy"), names_list)
 

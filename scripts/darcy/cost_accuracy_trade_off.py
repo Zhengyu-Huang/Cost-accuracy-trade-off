@@ -162,11 +162,12 @@ def cost_accuracy_plot():
     
         
     
-    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+    fig, axs = plt.subplots(1, 2, figsize=(18, 6))
 
     for ax in axs:
         ax.grid(True, linestyle=':', linewidth=0.5, alpha=0.6)
-    
+        ax.grid(True, which='minor', linestyle=':', linewidth=0.5, alpha=0.6)
+        
     mean_cost_traditional_solver = np.mean(cost_traditional_solver, axis=1)     
     mean_accuracy_traditional_solver = np.mean(accuracy_traditional_solver, axis=1)    
     std_cost_traditional_solver  = np.std(cost_traditional_solver, axis=1, ddof=1)       
@@ -202,9 +203,11 @@ def cost_accuracy_plot():
     axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
                 label=f'MNO ($\\varepsilon^{{{slope:.2f}}}$)')
     
-    axs[0].set_xlabel("Rel. error")
+    axs[0].set_xlabel(r"Rel. $L_2$ error")
     axs[0].set_ylabel("Floating-point cost")
     axs[0].legend(loc='lower left')
+    
+    axs[0].set_ylim(bottom=1e4)
     
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
     axs[1].errorbar(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], xerr=std_accuracy_traditional_solver, yerr=std_cost_traditional_solver[...,1], fmt='s', color='C0')
@@ -234,7 +237,7 @@ def cost_accuracy_plot():
     axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
                 label=f'MNO (CPU)')
     
-    axs[1].set_xlabel("Rel. error")
+    axs[1].set_xlabel(r"Rel. $L_2$ error")
     axs[1].set_ylabel("Runtime (s)")
     axs[1].legend(loc='lower left')
     

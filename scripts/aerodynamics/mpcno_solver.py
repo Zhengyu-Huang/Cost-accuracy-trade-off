@@ -8,14 +8,14 @@ import gc
 import matplotlib.pyplot as plt
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
-
+import re
 
 from mpcno_helper import _load_data, gen_data_tensors
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from utility.normalizer import UnitGaussianNormalizer
 from utility.losses import LpLoss
-from nn.geo_utility import preprocess_data_mesh
+from nn.geo_utility import preprocess_data_mesh, compute_node_weight_scale
 from nn.mpcno import compute_Fourier_modes, MPCNO, mpcno_floating_point_cost
 
 
@@ -81,7 +81,7 @@ def mpcno_solver(save_model_name, data_vtk_file):
     
 
     node_weights = np.nan_to_num(node_measures_raw, nan=0.0)
-    node_weight_scale = 40.32200687398325 #np.amax(np.sum(node_weights, axis=1))
+    node_weight_scale = compute_node_weight_scale(2, Ls)
     node_weights = node_weights / node_weight_scale  
     node_weights = node_weights[...,0]
     edge_gradient_weights /= dx_scale
@@ -192,7 +192,7 @@ def mpcno_solver(save_model_name, data_vtk_file):
 
 
 
-def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4, n_train = 1000, n_test = 100, n_trial = 10):
+def cost_accuracy_mpcno_solver_helper(device, data_path, save_model_name, n_train, n_test, n_trial):
 
     ##############################################
     # load data
@@ -201,10 +201,13 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4
     
     names_array = np.load(data_path+"/mpcno_data_names_list"+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npy", allow_pickle=True)
     
+
+    k_max = 16 
     
+    n_train = int(re.search(r'N(\d+)', save_model_name).group(1))
+    n_layer = int(re.search(r'nlayer(\d+)', save_model_name).group(1))
+
     dx_scale = 10.0
-    # k_max = 16
-    # n_layer = 3
     fc_dim = 64
     layers = [fc_dim]*(n_layer+1)
     layer_selection = {'grad': True, 'geo': True, 'geointegral': True}
@@ -218,14 +221,13 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4
     normalization_x = False
     normalization_y = True
 
-    save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}"
     
     f_in_dim, f_out_dim = 0, 1
     nnodes, node_mask, nodes = data["nnodes"], data["node_mask"], data["nodes"]
     print(nnodes.shape,node_mask.shape,nodes.shape,flush = True)
     
     node_weights = data["node_measures"]
-    node_weight_scale = np.amax(np.sum(node_weights, axis=1))
+    node_weight_scale = compute_node_weight_scale(2, Ls)
     node_weights = node_weights / node_weight_scale  
     
     node_weights = node_weights[...,0]
@@ -277,7 +279,7 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4
                 layer_selection = layer_selection,
                 layers=layers,
                 fc_dim=fc_dim,
-                in_dim=x_train.shape[-1], out_dim=y_train.shape[-1],
+                in_dim=f_in_dim+2*ndim, out_dim=y_train.shape[-1],
                 act = 'gelu',
                 ).to(device)
     
@@ -302,6 +304,9 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4
         x, y, node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo = x.to(device), y.to(device), node_mask.to(device), nodes.to(device), node_weights.to(device), directed_edges.to(device), edge_gradient_weights.to(device), geo.to(device)
 
         batch_size_ = x.shape[0]
+        # warm-up
+        out = model(x, (node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo)) #.reshape(batch_size_,  -1)
+
 
         start_time = time.perf_counter()
         for j in range(n_repeat):
@@ -317,7 +322,7 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4
         
         accuracy[i,0] = myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
         accuracy[i,1] = rl1loss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-        cost[i,0] = mpcno_floating_point_cost(ndim, f_in_dim, f_out_dim, k_max, fc_dim, n_layer, node_mask.sum().item())
+        cost[i,0] = mpcno_floating_point_cost(ndim, f_in_dim+2*ndim, f_out_dim, k_max, fc_dim, n_layer, node_mask.sum().item(), layer_selection=layer_selection)
         cost[i,1] = solve_time
 
                     
@@ -325,30 +330,33 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, k_max = 16, n_layer = 4
         print("Test ", names_array[n_train+i] , " rel. L2 error ", accuracy[i,0], " rel. L1 error ", accuracy[i,1], "cost : ", cost[i,1])
 
        
-        return cost, accuracy
+    return cost, accuracy
 
 
 
-def cost_accuracy_mpcno_solver(n_layer_values):
-    n_train, n_test, n_trial = 2000, 512, 20
+def cost_accuracy_mpcno_solver(n_point_values):
+    n_train, n_test, n_trial = 4000, 512, 512
     
-    cost_array = np.zeros((len(n_layer_values), n_trial, 3)) 
-    accuracy_array = np.zeros((len(n_layer_values),  n_trial, 2))
+    n_layer = 4
+    cost_array = np.zeros((len(n_point_values), n_trial, 3)) 
+    accuracy_array = np.zeros((len(n_point_values),  n_trial, 2))
     
-    
-    data_path = "../../data/aerodynamics/PressureVTK_Processed_20000"
         
-    for n_layer_index, n_layer in enumerate(n_layer_values):
-        save_model_name = f"models/MNO_model_N{n_train}_k16_nlayer{n_layer}.pth"
-        for device in [torch.device('cpu') , torch.device('cpu')]:
-            cost, accuracy  = cost_accuracy_mpcno_solver_helper(device, data_path, k_max=16, n_layer=n_layer, n_train = n_train, n_test = n_test, n_trial = n_trial)
-            cost_array[n_layer_index, ..., 0] = cost[...,0]
+    for n_point_index, n_point in enumerate(n_point_values):
+        data_path = "../../data/aerodynamics/PressureVTK_Processed_" + str(n_point)
+        save_model_name = f"models/MPCNO_model_N{n_train}_k16_nlayer{n_layer}_npoint{n_point}"
+        for device in [torch.device('cpu') , torch.device('cuda')]:
+            
+            cost, accuracy  = cost_accuracy_mpcno_solver_helper(device, data_path, save_model_name=save_model_name, n_train = n_train, n_test = n_test, n_trial = n_trial)
+            print("n_point is ", n_point, " cost is ", cost)
+            
+            cost_array[n_point_index, ..., 0] = cost[...,0]
             if device.type == 'cpu':
-                cost_array[n_layer_index, ..., 1] = cost[...,1]
+                cost_array[n_point_index, ..., 1] = cost[...,1]
             else:
-                cost_array[n_layer_index, ..., 2] = cost[...,1]
+                cost_array[n_point_index, ..., 2] = cost[...,1]
                 
-            accuracy_array[n_layer_index, ...] = accuracy
+            accuracy_array[n_point_index, ...] = accuracy
              
                 
 
@@ -358,11 +366,10 @@ def cost_accuracy_mpcno_solver(n_layer_values):
 
 
 if __name__ == "__main__":
-    # save_model_name =  "models/MNO_model_N2000_k16_nlayer4"
+    # save_model_name =  "models/MPCNO_model_N2000_k16_nlayer4_npoint10000"
     # # data_vtk_file = "data/openfoam_L_decimate.vtk"
     # data_vtk_file = "data/F_D_WM_WW_0057.vtk"
     # mpcno_solver(save_model_name, data_vtk_file)
     
-    # cost_accuracy_mpcno_solver([3,4,5])
-    cost_accuracy_mpcno_solver([4])
+    cost_accuracy_mpcno_solver([10000, 20000, 40000])
     

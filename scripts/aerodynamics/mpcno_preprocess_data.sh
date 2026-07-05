@@ -12,4 +12,4 @@
 module load conda
 source activate pytorch
 
-python mpcno_preprocess_data.py --n_each 400   # "cell_centered" , "vertex_centered"
+python mpcno_preprocess_data.py --n_each 400 --n_point 10000  

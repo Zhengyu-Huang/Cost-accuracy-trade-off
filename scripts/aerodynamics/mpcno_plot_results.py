@@ -7,18 +7,36 @@ import gc
 import matplotlib.pyplot as plt
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
-
-from matplotlib.ticker import FixedLocator, FixedFormatter
-plt.rcParams['font.family'] = 'Times New Roman'
-
+from matplotlib.ticker import ScalarFormatter
 from mpcno_helper import gen_data_tensors
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from utility.normalizer import UnitGaussianNormalizer
 from utility.losses import LpLoss
 from nn.mpcno import compute_Fourier_modes, MPCNO
+from nn.geo_utility import compute_node_weight_scale
 
-FONTSIZE = 17
+
+plt.style.use('seaborn-v0_8-whitegrid')   # 现代网格样式
+plt.rcParams.update({
+    'font.size': 20,
+    'axes.titlesize': 28,
+    'axes.labelsize': 20,
+    'xtick.labelsize': 20,
+    'ytick.labelsize': 20,
+    'legend.fontsize': 20,
+    'figure.dpi': 150,
+    'savefig.dpi': 300,
+    'savefig.bbox': 'tight',
+    'lines.linewidth': 2.4
+})
+formatter = ScalarFormatter(useMathText=True)
+# 2. 强制使用科学计数法，并让指数作为偏移量（顶部显示）
+formatter.set_scientific(True)
+formatter.set_powerlimits((-2, 2))   # 数值小于 1e-3 或大于 1e3 时触发偏移量
+formatter.set_useOffset(True)        # 明确使用偏移量    
+lbl = "#000000"
+tk = "#808080"
 
 
 
@@ -40,7 +58,7 @@ def get_median_index(arr):
         # 通常我们不会为偶数长度的数组返回单个索引，因为中位数是两个值的平均。
         # 但是，如果你需要，你可以选择返回这两个索引或仅其中一个。
         # 这里我们简单地返回一个元组
-        median_index = median_index_1
+        median_index = [median_index_1, median_index_2]
     
     return median_index
 
@@ -80,61 +98,10 @@ def plot_results(vertices, elems, vertex_data, elem_data, file_name):
     # Save to an Exodus II file
     meshio.write(file_name+ ".vtk", mesh)
 
-def plot_raw_data(folder = "../../data/mixed_3d_add_elem_features", category = "Plane", subcategory = "boeing737", data_id = 10):
-# visualize raw data
-    data_file = folder + "/" + category + "/" + subcategory + "/" + str(data_id).zfill(4) + ".npz"
-    data = np.load(data_file)
-    vertices = data["nodes_list"]
-    elems = data["elems_list"]
-
-    print("number of vertices : ", vertices.shape[0])
-    print("number of elems : ", elems.shape[0])
-
-    vertex_data = {"vertex_Cp":  data["features_list"][:,0]}
-    elem_data   = {"element_Cp": [data["elem_features_list"][:,0]]}
-    file_name = category + "_" + subcategory + "_" + str(data_id).zfill(4)
-    plot_results(vertices, elems, vertex_data, elem_data, file_name)
 
 
-def plot_reduced_data(folder = "../../data/mixed_3d_add_elem_features", mesh_type = "vertex_centered", n_train = 1000, n_test = 100, data_id = 0):
-    # # visualize postprocessed data
-    data = np.load(folder+"/pcno_mixed_3d_"+mesh_type+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz")
-    names_array = np.load(folder+"/pcno_mixed_3d_names_list"+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npy", allow_pickle=True)
-    
-    
-    nnodes, node_mask, nodes, features = data["nnodes"][data_id], data["node_mask"][data_id], data["nodes"][data_id], data["features"][data_id]
-    print("nnodes = ", nnodes, " total nnodes = ", node_mask.shape[0], flush = True)
 
-    raw_data_category, raw_data_subcategory, raw_data_id = names_array[data_id].split('-')
-    raw_data_id = int(raw_data_id)
-    print("Visualize ", raw_data_category, " ", raw_data_subcategory, " ", raw_data_id)
-    raw_data_file = folder + "/" + raw_data_category + "/" + raw_data_subcategory + "/" + str(raw_data_id).zfill(4) + ".npz"
-    raw_data = np.load(raw_data_file)
-    elems = raw_data["elems_list"]
-    vertices = raw_data["nodes_list"]
-
-    print("number of vertices : ", vertices.shape[0])
-    print("number of elems : ", elems.shape[0])
-
-    if mesh_type == "cell_centered":
-        vertex_data = {"vertex_Cp":  raw_data["features_list"][:,0]}
-        elem_data   = {"element_Cp": [raw_data["elem_features_list"][:,0]], "post_element_Cp": [features[0:nnodes,3]], "post_element_normal": [features[0:nnodes,0:3]]}
-        
-    elif mesh_type == "vertex_centered":
-        vertex_data = {"vertex_Cp":  raw_data["features_list"][:,0], "post_vertex_Cp": features[0:nnodes,3], "post_vertex_normal": features[0:nnodes,0:3]}
-        elem_data   = {"element_Cp": [raw_data["elem_features_list"][:,0]]}
-        
-    else:
-        raise NotImplementedError(
-                        f"Unsupported mesh_type={mesh_type}"
-                    ) 
-        
-    file_name = "post_" + mesh_type + "_" + raw_data_category + "_" +  raw_data_subcategory + "_" + str(raw_data_id).zfill(4)
-    plot_results(vertices, elems, vertex_data, elem_data, file_name)
-    
-    
-
-def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", n_train = 1000, n_test = 100, data_ids = None):
+def predict_error(data_path, n_train, n_test, data_ids = None):
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -149,11 +116,11 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
     
     dx_scale = 10.0
     k_max = 16
-    n_layer = 3
+    n_layer = 4
     fc_dim = 64
     layers = [fc_dim]*(n_layer+1)
-    layer_selection = {'grad': "true", 'geo': "true", 'geointegral': "true"}
-
+    layer_selection = {'grad': True, 'geo': True, 'geointegral': True}
+    n_point = int(data_path.split('_')[-1])
     #！！！！！
     # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
     Ls = [10.0, 4.0, 3.2]
@@ -163,14 +130,14 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
     normalization_x = False
     normalization_y = True
 
-    save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}"
+    save_model_name = f"models/MPCNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_npoint{n_point}"
     
     f_in_dim, f_out_dim = 0, 1
     nnodes, node_mask, nodes = data["nnodes"], data["node_mask"], data["nodes"]
     print(nnodes.shape,node_mask.shape,nodes.shape,flush = True)
     
     node_weights = data["node_measures"]
-    node_weight_scale = np.amax(np.sum(node_weights, axis=1))
+    node_weight_scale = compute_node_weight_scale(2, Ls) 
     node_weights = node_weights / node_weight_scale  
     
     node_weights = node_weights[...,0]
@@ -262,19 +229,16 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
             test_rel_l1[i] = rl1loss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
             print("Test ", names_array[n_train+i] , " rel. L2 error ", test_rel_l2[i], " rel. L1 error ", test_rel_l1[i])
 
-        np.save('data/test_rel_l2.npy', test_rel_l2)
-        np.save('data/test_rel_l1.npy', test_rel_l1)
+        np.save(f'data/test_rel_l2_npoint{n_point}.npy', test_rel_l2)
+        np.save(f'data/test_rel_l1_npoint{n_point}.npy', test_rel_l1)
     
-        largest_rl2_error_ind = np.argmax(test_rel_l2)
-        median_rl2_error_ind = get_median_index(test_rel_l2)  # Get the index (or indices)
         largest_rl1_error_ind = np.argmax(test_rel_l1)
-        median_rl1_error_ind = get_median_index(test_rel_l1)  # Get the index (or indices)
-        print("largest rel. L2 error is ", test_rel_l2[largest_rl2_error_ind], " ; median rel. L2 error is ", test_rel_l2[median_rl2_error_ind])
-        print("largest rel. L2 error index is ", largest_rl2_error_ind, " ; median rel. L2 error index is ", median_rl2_error_ind)
-        print("largest rel. L1 error is ", test_rel_l1[largest_rl1_error_ind], " ; median rel. L1 error is ", test_rel_l1[median_rl1_error_ind])
-        print("largest rel. L1 error index is ", largest_rl1_error_ind, " ; median rel. L1 error index is ", median_rl1_error_ind)
+        largest_2nd_rl1_error_ind = np.argsort(test_rel_l1)[-2]
+        median_1st_rl1_error_ind, median_2nd_rl1_error_ind = get_median_index(test_rel_l1)  # Get the index (or indices)
+        print("largest rel. L1 error is ", test_rel_l1[largest_rl1_error_ind], " ; median rel. L1 error is ", test_rel_l1[median_1st_rl1_error_ind], test_rel_l1[median_2nd_rl1_error_ind])
+        print("largest rel. L1 error index is ", largest_rl1_error_ind, " ; median rel. L1 error index is ", median_1st_rl1_error_ind, median_2nd_rl1_error_ind)
         # they are only test data id
-        data_ids = [largest_rl2_error_ind + n_train, median_rl2_error_ind + n_train, largest_rl1_error_ind + n_train, median_rl1_error_ind + n_train]
+        data_ids = [largest_rl1_error_ind + n_train, largest_2nd_rl1_error_ind+n_train, median_1st_rl1_error_ind + n_train, median_2nd_rl1_error_ind + n_train]
         
         
         
@@ -349,13 +313,27 @@ def predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/", 
             }
         )
         
-        file_name = "figs/predict_" + raw_data_id
+        file_name = "figs/predict_npoint" + str(n_point) + "_" + raw_data_id
+        print("file name is ", file_name)
         meshio.write(file_name, mesh)
 
 
+def error_bin_plot(n_point):
+    data = np.load(f'data/test_rel_l1_npoint{n_point}.npy')  
+    plt.figure(figsize=(8, 5))
+    plt.hist(data, bins=30, edgecolor='black', alpha=0.7, color='steelblue')
+    plt.xlabel(f"Rel. error")
+    # plt.ylabel('Frequency')
+    # plt.title('Distribution of Test Relative $L_1$ Errors')
+    plt.grid(True, alpha=0.3)
+    plt.savefig(f"figs/error_bin_npoint{n_point}.pdf")
         
-# predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/",  n_train = 2000, n_test = 512, data_ids = [2101])
-predict_error(data_path = "../../data/aerodynamics/PressureVTK_Processed/",  n_train = 2000, n_test = 512, data_ids = None)
+if __name__ == "__main__":
+    n_point = 20000
+    predict_error(data_path = f"../../data/aerodynamics/PressureVTK_Processed_{n_point}",  n_train = 4000, n_test = 512, data_ids = None)
+    error_bin_plot(n_point)
 
-
+    n_point = 40000
+    predict_error(data_path = f"../../data/aerodynamics/PressureVTK_Processed_{n_point}",  n_train = 4000, n_test = 512, data_ids = None)
+    error_bin_plot(n_point)
 

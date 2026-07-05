@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -o logs/MPCNO_reduce_data_vertex_centered.out
 #SBATCH --qos=low
-#SBATCH -p C064M0256G
+#SBATCH -p C064M1024G
 #SBATCH -J PCNO_reduce_data_vertex_centered
 #SBATCH --nodes=1 
 #SBATCH --ntasks=1
@@ -10,4 +10,4 @@
 
 module load conda
 source activate pytorch
-python mpcno_reduce_data.py --n_train 1000 --n_test 512
+python mpcno_reduce_data.py --n_train 4000 --n_test 512 --n_point 10000

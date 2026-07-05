@@ -673,10 +673,8 @@ class MPCNO(nn.Module):
                 x1 = spw(x1) + spconvadjnw(torch.cat([x1 * outward_normals[:, i:i+1, :] for i in range(outward_normals.size(1))], dim=1))
             else:
                 x1 = speconv(x, bases, wbases)
-    
-                
+      
             x2 = w(x)
-
 
             if self.layer_selection['grad']:
                 x_grad = grad_layer(x, directed_edges, edge_gradient_weights)
@@ -1185,13 +1183,25 @@ def MPCNO_train_parallel(x_train, aux_train, y_train, x_test, aux_test, y_test, 
 
 
 
-def mpcno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne):
+def mpcno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, layer_selection):
     c_sigma = 1.0
     K = (2*k_max+1)**dim
     C_lift = 2*ne*in_dim*fc_dim
     C_proj = 2*ne*fc_dim*fc_dim + 2*ne*fc_dim*out_dim + c_sigma*ne*fc_dim
-    C_layer_stru = 10*fc_dim*ne*np.log2(ne) + K*(8*fc_dim*fc_dim - 2*fc_dim) + ((2*dim+4)*fc_dim*fc_dim + (2*dim+3+c_sigma)*fc_dim)*ne + fc_dim*ne
-    C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (3+c_sigma)*fc_dim)*ne + fc_dim*ne
+    Cost = C_lift + C_proj
+    if layer_selection["grad"] and not layer_selection["geo"] and not layer_selection["geointegral"]:
+        C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (3+c_sigma)*fc_dim)*ne + fc_dim*ne
+        Cost += nlayer*C_layer_unstru
+    elif layer_selection["grad"] and layer_selection["geo"] and layer_selection["geointegral"]:
+        C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (3+c_sigma)*fc_dim)*ne + fc_dim*ne
+        Cost += nlayer*C_layer_unstru
+        # gradient of normal
+        Cost += 2*(2*dim+1)*dim*(dim*ne)
+        # geo term
+        Cost += nlayer * ne * fc_dim * (4*fc_dim + 2*(dim*dim+dim) -2) 
+        # geo integral term
+        Cost += nlayer * ne * fc_dim * (fc_dim*(4*dim+6) + 2*fc_dim - 3)
+    else:
+        error("Have not implemented")
     
-    C_layer = C_layer_unstru 
-    return C_lift + C_proj + nlayer*C_layer
+    return Cost

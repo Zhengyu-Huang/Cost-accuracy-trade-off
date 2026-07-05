@@ -32,6 +32,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train model with different configurations and options.')
     # Preprocess data n_each from each subcategories
     parser.add_argument('--n_each', type=int, default=100)
+    parser.add_argument('--n_point', type=int, default=10000)
     
     # Specifies how the computational mesh is represented. 
     # “cell_centered” stores features at cell centers (control-volume based), 
@@ -39,11 +40,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     mesh_type = 'vertex_centered'
     n_each  = args.n_each 
-    
+    n_point = args.n_point
     ###################################
     # load data
     ###################################
-    data_path = "../../data/aerodynamics/PressureVTK_Processed"
+    data_path = "../../data/aerodynamics/PressureVTK_Processed_" + str(n_point)
     
                                                                                                 
 
