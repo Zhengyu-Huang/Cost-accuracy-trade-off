@@ -81,7 +81,7 @@ def cost_accuracy_plot():
     axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
                 label=f'MNO ($\\varepsilon^{{{slope:.2f}}}$)')
     
-    axs[0].set_xlabel(r"Rel. $L_1$ error")
+    axs[0].set_xlabel(r"Rel. $L^1$ error")
     axs[0].set_ylabel("Floating-point cost")
     axs[0].legend(loc='lower left')
     axs[0].set_ylim(bottom=1e10)
@@ -127,7 +127,7 @@ def cost_accuracy_plot():
                 label=f'MNO (CPU)')
     
 
-    axs[1].set_xlabel(r"Rel. $L_1$ error")
+    axs[1].set_xlabel(r"Rel. $L^1$ error")
     axs[1].set_ylabel("Runtime (s)")
     axs[1].legend(loc='lower right')
 

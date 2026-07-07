@@ -322,7 +322,7 @@ def error_bin_plot(n_point):
     data = np.load(f'data/test_rel_l1_npoint{n_point}.npy')  
     plt.figure(figsize=(8, 5))
     plt.hist(data, bins=30, edgecolor='black', alpha=0.7, color='steelblue')
-    plt.xlabel(f"Rel. error")
+    plt.xlabel(rf"Rel. $L^1$ error")
     # plt.ylabel('Frequency')
     # plt.title('Distribution of Test Relative $L_1$ Errors')
     plt.grid(True, alpha=0.3)

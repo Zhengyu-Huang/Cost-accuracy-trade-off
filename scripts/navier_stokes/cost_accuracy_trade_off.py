@@ -168,7 +168,7 @@ def nrollouts_plot():
     axs.errorbar(time_array, mean_accuracy_mno_solver[2,...], yerr=std_accuracy_mno_solver[2,...], fmt='-o', label=rf"MNO ($s=3$)", color='C5')
     axs.legend()
     axs.set_xlabel("Time")
-    axs.set_ylabel(r"Rel. $L_2$ error")
+    axs.set_ylabel(r"Rel. $L^2$ error")
     
 
     fig.tight_layout()
@@ -178,7 +178,7 @@ def nrollouts_plot():
     
 def cost_accuracy_plot():
     # use the first nt steps to compute error
-    nt_error, nt = 1, 50
+    nt_error, nt = 30, 50
     
     cost_accuracy_traditional_solver_data = np.load('data/cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
     # np.array of size (n_downsample, n_trial, 2)
@@ -256,7 +256,7 @@ def cost_accuracy_plot():
     axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
                 label=f'MNO')
     
-    axs[0].set_xlabel(r"Rel. $L_2$ error")
+    axs[0].set_xlabel(r"Rel. $L^2$ error")
     axs[0].set_ylabel("Floating-point cost")
     axs[0].legend(loc='lower left')
     axs[0].set_ylim(bottom=1e8 if nt_error == 30 else 1e7)
@@ -305,7 +305,7 @@ def cost_accuracy_plot():
 
 
     
-    axs[1].set_xlabel(r"Rel. $L_2$ error")
+    axs[1].set_xlabel(r"Rel. $L^2$ error")
     axs[1].set_ylabel("Runtime (s)")
     axs[1].legend(loc='lower left')
     
@@ -318,4 +318,4 @@ def cost_accuracy_plot():
 if __name__ == "__main__":
     # visualize_data(visualize_prediction=True)
     cost_accuracy_plot()
-    # nrollouts_plot()
+    nrollouts_plot()
