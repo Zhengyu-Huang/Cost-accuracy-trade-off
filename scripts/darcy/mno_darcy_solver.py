@@ -56,7 +56,7 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                 
                 checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
                 
-                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
+                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
                 model = model.to(device)
 
                 if normalization_x:
@@ -154,7 +154,7 @@ def mno_solver(test_index, downsample):
                 
     checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
     
-    model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
+    model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
     model = model.to(device)
 
     x_normalizer = UnitGaussianNormalizer.from_state_dict(torch.load(checkpoint_path + "_normalization_x.pth", map_location="cpu", weights_only=True,), device=device)

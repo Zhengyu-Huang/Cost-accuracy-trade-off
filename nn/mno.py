@@ -501,6 +501,7 @@ class MNO1d(nn.Module):
                  in_dim=2, out_dim=1,
                  act='gelu',
                  modes=[16,16,16],
+                 grad_layer=True,
                  geo_act='softsign', dx1=0.5, 
                  pad_ratio=0, 
                  cnn_kernel_size=1,
@@ -528,7 +529,7 @@ class MNO1d(nn.Module):
         self.fc_dim = fc_dim
         self.in_dim = in_dim
         self.out_dim = out_dim
-        
+        self.grad_layer = grad_layer
         # When incremental is true, x + NN(x), do not use normalizer
         self.incremental = incremental
         # Layer 1: Lift input to higher-dimensional channel space
@@ -553,7 +554,7 @@ class MNO1d(nn.Module):
                 GradientLayer1d(in_size, out_size, dx1=dx1, geo_act=geo_act)
                 for in_size, out_size in zip(self.layers, self.layers[1:])
             ]
-        ) 
+        ) if grad_layer else [None]*len(self.layers[1:])
 
         # Output projection layers
         # if fc_dim = 0, we do not have nonlinear layer
@@ -601,7 +602,7 @@ class MNO1d(nn.Module):
             # Local convolution (W operator) - captures local patterns
             x2 = w(x)
             # Gradient layer
-            x3 = grad_layer(x)
+            x3 = grad_layer(x) if self.grad_layer else 0
 
             # Apply activation (except after last layer)
             if self.act is not None and i != length - 1:
@@ -645,6 +646,7 @@ class MNO2d(nn.Module):
         out_dim=1,
         act="gelu",
         modes1 = [16,16,16], modes2 = [16,16,16],
+        grad_layer=True,
         geo_act='softsign', dx1=0.5, dx2=0.5,
         pad_ratio=0,
         cnn_kernel_size=1,
@@ -675,7 +677,7 @@ class MNO2d(nn.Module):
         self.fc_dim = fc_dim
         self.in_dim = in_dim
         self.out_dim = out_dim
-        
+        self.grad_layer = grad_layer
         # When incremental is true, x + NN(x), do not use normalizer
         self.incremental = incremental
         
@@ -708,7 +710,7 @@ class MNO2d(nn.Module):
                 GradientLayer2d(in_size, out_size, dx1=dx1, dx2=dx2, geo_act=geo_act)
                 for in_size, out_size in zip(self.layers, self.layers[1:])
             ]
-        ) 
+        ) if grad_layer else [None]*len(self.layers[1:])
 
         # Output projection
         if fc_dim > 0:
@@ -755,7 +757,7 @@ class MNO2d(nn.Module):
         for i, (speconv, w, grad_layer) in enumerate(zip(self.sp_convs, self.ws, self.grad_layers)):
             x1 = speconv(x)
             x2 = w(x)
-            x3 = grad_layer(x)
+            x3 = grad_layer(x) if self.grad_layer else 0
 
             # Apply activation (except after last layer)
             if self.act is not None and i != length - 1:
@@ -818,18 +820,19 @@ def MNO_train(x_train, y_train, x_test, y_test, config, model, save_model_name="
         save_model_name: Path to save model checkpoints (without extension)
     
     Returns:
-        train_rel_l2_losses: List of relative L2 training losses per epoch
-        test_rel_l2_losses: List of relative L2 test losses per epoch
-        test_l2_losses: List of absolute L2 test losses per epoch
+        train_rel_lp_losses: List of relative Lp training losses per epoch
+        test_rel_lp_losses: List of relative Lp test losses per epoch
+        test_lp_losses: List of absolute Lp test losses per epoch
     """
     
     n_train, n_test = x_train.shape[0], x_test.shape[0]
-    train_rel_l2_losses = []
-    test_rel_l2_losses = []
-    test_l2_losses = []
+    train_rel_lp_losses = []
+    test_rel_lp_losses = []
+    test_lp_losses = []
     normalization_x, normalization_y = config["train"]["normalization_x"], config["train"]["normalization_y"]
     normalization_dim_x, normalization_dim_y = config["train"]["normalization_dim_x"], config["train"]["normalization_dim_y"]
     non_normalized_dim_x, non_normalized_dim_y = config["train"]["non_normalized_dim_x"], config["train"]["non_normalized_dim_y"]
+    loss_p = config["train"]["loss_p"]
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -871,14 +874,14 @@ def MNO_train(x_train, y_train, x_test, y_test, config, model, save_model_name="
 
     model.train()
     
-    # Loss function: Relative L2 loss
-    myloss = LpLoss(d=1, p=2, size_average=False)
+    # Loss function: Relative Lp loss
+    myloss = LpLoss(d=1, p=loss_p, size_average=False)
     epochs = config['train']['epochs']
 
     # Training loop
     for ep in range(epochs):
         t1 = default_timer()
-        train_rel_l2 = 0
+        train_rel_lp = 0
 
         # Training phase
         model.train()
@@ -898,11 +901,11 @@ def MNO_train(x_train, y_train, x_test, y_test, config, model, save_model_name="
 
             optimizer.step()
             scheduler.step()
-            train_rel_l2 += loss.item()
+            train_rel_lp += loss.item()
 
         # Evaluation phase
-        test_l2 = 0
-        test_rel_l2 = 0
+        test_lp = 0
+        test_rel_lp = 0
         model.eval()
         with torch.no_grad():
             for x, y in test_loader:
@@ -914,27 +917,27 @@ def MNO_train(x_train, y_train, x_test, y_test, config, model, save_model_name="
                     out = y_normalizer.decode(out)
                     y = y_normalizer.decode(y)
 
-                test_rel_l2 += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-                test_l2 += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+                test_rel_lp += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+                test_lp += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
 
 
 
 
         
         # Average losses over dataset size
-        train_rel_l2/= n_train
-        test_l2 /= n_test
-        test_rel_l2/= n_test
+        train_rel_lp/= n_train
+        test_lp /= n_test
+        test_rel_lp/= n_test
         
         # Store losses
-        train_rel_l2_losses.append(train_rel_l2)
-        test_rel_l2_losses.append(test_rel_l2)
-        test_l2_losses.append(test_l2)
+        train_rel_lp_losses.append(train_rel_lp)
+        test_rel_lp_losses.append(test_rel_lp)
+        test_lp_losses.append(test_lp)
     
         t2 = default_timer()
         
         # Print progress
-        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2, flush=True)
+        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L" + str(int(loss_p)) + " Loss : ", train_rel_lp, " Rel. Test L" + str(int(loss_p)) + " Loss : ", test_rel_lp, " Test L" + str(int(loss_p)) + " Loss : ", test_lp, flush=True)
         
         # Save checkpoint every 100 epochs and at final epoch
         if (ep %100 == 99) or (ep == epochs -1):    
@@ -946,7 +949,7 @@ def MNO_train(x_train, y_train, x_test, y_test, config, model, save_model_name="
                     torch.save(y_normalizer.state_dict(), save_model_name + "_normalization_y.pth")
     
     
-    return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
+    return train_rel_lp_losses, test_rel_lp_losses, test_lp_losses
 
 
 # ============================================================================
@@ -982,18 +985,19 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
         save_model_name: Path to save model checkpoints (without extension)
     
     Returns:
-        train_rel_l2_losses: List of relative L2 training losses per epoch
-        test_rel_l2_losses: List of relative L2 test losses per epoch
-        test_l2_losses: List of absolute L2 test losses per epoch
+        train_rel_lp_losses: List of relative Lp training losses per epoch
+        test_rel_lp_losses: List of relative Lp test losses per epoch
+        test_lp_losses: List of absolute Lp test losses per epoch
     """
     in_dim, out_dim = x_train.shape[-1], y_train.shape[-1] // n_step
     n_train, n_test = x_train.shape[0], x_test.shape[0]
-    train_rel_l2_losses = []
-    test_rel_l2_losses = []
-    test_l2_losses = []
+    train_rel_lp_losses = []
+    test_rel_lp_losses = []
+    test_lp_losses = []
     normalization_x, normalization_y = config["train"]["normalization_x"], config["train"]["normalization_y"]
     normalization_dim_x, normalization_dim_y = config["train"]["normalization_dim_x"], config["train"]["normalization_dim_y"]
     non_normalized_dim_x, non_normalized_dim_y = config["train"]["non_normalized_dim_x"], config["train"]["non_normalized_dim_y"]
+    loss_p = config["train"]["loss_p"]
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -1029,15 +1033,15 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
     else:
         print("Scheduler ", config['train']['scheduler'], " has not implemented.")
     
-    # Loss function: Relative L2 loss
-    myloss = LpLoss(d=1, p=2, size_average=False)
+    # Loss function: Relative Lp loss
+    myloss = LpLoss(d=1, p=loss_p, size_average=False)
     epochs = config['train']['epochs']
 
 
     # Training loop
     for ep in range(epochs):
         t1 = default_timer()
-        train_rel_l2 = 0
+        train_rel_lp = 0
 
         # Training phase
         model.train()
@@ -1064,11 +1068,11 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
 
             optimizer.step()
             scheduler.step()
-            train_rel_l2 += loss.item()
+            train_rel_lp += loss.item()
 
         # Evaluation phase
-        test_l2 = 0
-        test_rel_l2 = 0
+        test_lp = 0
+        test_rel_lp = 0
         model.eval()
         with torch.no_grad():
             for x, y in test_loader:
@@ -1086,27 +1090,27 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
                     x_pred = torch.cat([y_pred, x[..., out_dim:]], dim=-1) if in_dim > out_dim else y_pred
                 out = torch.cat(out, dim=-1)
                 
-                test_rel_l2 += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-                test_l2 += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+                test_rel_lp += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
+                test_lp += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
 
 
 
 
         
         # Average losses over dataset size
-        train_rel_l2/= n_train
-        test_l2 /= n_test
-        test_rel_l2/= n_test
+        train_rel_lp/= n_train
+        test_lp /= n_test
+        test_rel_lp/= n_test
         
         # Store losses
-        train_rel_l2_losses.append(train_rel_l2)
-        test_rel_l2_losses.append(test_rel_l2)
-        test_l2_losses.append(test_l2)
+        train_rel_lp_losses.append(train_rel_lp)
+        test_rel_lp_losses.append(test_rel_lp)
+        test_lp_losses.append(test_lp)
     
         t2 = default_timer()
         
         # Print progress
-        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L2 Loss : ", train_rel_l2, " Rel. Test L2 Loss : ", test_rel_l2, " Test L2 Loss : ", test_l2, flush=True)
+        print("Epoch : ", ep, " Time: ", round(t2-t1,3), " Rel. Train L" + str(int(loss_p)) + " Loss : ", train_rel_lp, " Rel. Test L" + str(int(loss_p)) + " Loss : ", test_rel_lp, " Test L" + str(int(loss_p)) + " Loss : ", test_lp, flush=True)
         
         # Save checkpoint every 100 epochs and at final epoch
         if (ep %100 == 99) or (ep == epochs -1):    
@@ -1118,11 +1122,11 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
                     torch.save(y_normalizer.state_dict(), save_model_name + "_normalization_y.pth")
     
     
-    return train_rel_l2_losses, test_rel_l2_losses, test_l2_losses
+    return train_rel_lp_losses, test_rel_lp_losses, test_lp_losses
 
 
 def setup_model(in_dim, out_dim, fc_dim, k_max, n_layer, 
-                dxs, dx_scale, pad_ratio, incremental=False, checkpoint_path = None):
+                grad_layer, dxs, dx_scale, pad_ratio, incremental=False, checkpoint_path = None):
     """
     Instantiate a MNO (Multi-channel Neural Operator) model for 1D or 2D problems,
     optionally loading pre-trained weights from a checkpoint.
@@ -1149,7 +1153,8 @@ def setup_model(in_dim, out_dim, fc_dim, k_max, n_layer,
                fc_dim=fc_dim,
                in_dim=in_dim, out_dim=out_dim,
                act='gelu',
-               modes1 = [k_max]*n_layer,
+               modes = [k_max]*n_layer,
+               grad_layer = grad_layer,
                geo_act='softsign', dx1=dxs[0]*dx_scale,
                pad_ratio=pad_ratio, 
                cnn_kernel_size=1,
@@ -1162,6 +1167,7 @@ def setup_model(in_dim, out_dim, fc_dim, k_max, n_layer,
                 in_dim=in_dim, out_dim=out_dim,
                 act='gelu',
                 modes1 = [k_max]*n_layer, modes2 = [k_max]*n_layer,
+                grad_layer = grad_layer,
                 geo_act='softsign', dx1=dxs[0]*dx_scale, dx2=dxs[1]*dx_scale,
                 pad_ratio=pad_ratio, 
                 cnn_kernel_size=1,
