@@ -145,7 +145,7 @@ if __name__ == "__main__":
     x_train, y_train, x_test, y_test, dx1, dx2 = preprocess_data(n_train, n_test, downsample=downsample)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, incremental=False)
+    model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, incremental=False)
     model = model.to(device)
     
     epochs = 500
@@ -166,7 +166,8 @@ if __name__ == "__main__":
     config = {"train" : {"base_lr": base_lr, "weight_decay": weight_decay, "epochs": epochs, "scheduler": scheduler,  "batch_size": batch_size, 
                         "normalization_x": normalization_x,"normalization_y": normalization_y, 
                         "normalization_dim_x": normalization_dim_x, "normalization_dim_y": normalization_dim_y, 
-                        "non_normalized_dim_x": non_normalized_dim_x, "non_normalized_dim_y": non_normalized_dim_y}
+                        "non_normalized_dim_x": non_normalized_dim_x, "non_normalized_dim_y": non_normalized_dim_y,
+                        "loss_p": 2}
                         }
 
 
