@@ -65,7 +65,7 @@ def visualize_data(visualize_prediction=False):
             cbar.formatter = formatter
 
         stride = 2**1
-        axs[2,0].set_ylabel(rf"$\omega~$(MNO)", fontsize=28);
+        axs[2,0].set_ylabel(rf"$\omega~$(Neural operator)", fontsize=28);
         for i in range(4):
             im = axs[2,i].pcolormesh(x[::stride,::stride], y[::stride,::stride], mno_solver_pred[ts[i],...], cmap='viridis', shading='gouraud', vmin=vmin_vorticity[i], vmax=vmax_vorticity[i])
             axs[2,i].set_xticks([]);
@@ -163,9 +163,9 @@ def nrollouts_plot():
     axs.errorbar(time_array, mean_accuracy_traditional_solver[1,0,...], yerr=std_accuracy_traditional_solver[1,0,...], fmt='-s', label=rf"Spectral method ($128 \times 128$)", color='C0')
     axs.errorbar(time_array, mean_accuracy_traditional_solver[2,0,...], yerr=std_accuracy_traditional_solver[2,0,...], fmt='-s', label=rf"Spectral method ($64 \times 64$)", color='C1')
     axs.errorbar(time_array, mean_accuracy_traditional_solver[3,0,...], yerr=std_accuracy_traditional_solver[3,0,...], fmt='-s', label=rf"Spectral method ($32 \times 32$)", color='C2')
-    axs.errorbar(time_array, mean_accuracy_mno_solver[0,...], yerr=std_accuracy_mno_solver[0,...], fmt='-o', label=rf"MNO ($s=1$)", color='C3')
-    axs.errorbar(time_array, mean_accuracy_mno_solver[1,...], yerr=std_accuracy_mno_solver[1,...], fmt='-o', label=rf"MNO ($s=2$)", color='C4')
-    axs.errorbar(time_array, mean_accuracy_mno_solver[2,...], yerr=std_accuracy_mno_solver[2,...], fmt='-o', label=rf"MNO ($s=3$)", color='C5')
+    axs.errorbar(time_array, mean_accuracy_mno_solver[0,...], yerr=std_accuracy_mno_solver[0,...], fmt='-o', label=rf"Neural operator ($s=1$)", color='C3')
+    axs.errorbar(time_array, mean_accuracy_mno_solver[1,...], yerr=std_accuracy_mno_solver[1,...], fmt='-o', label=rf"Neural operator ($s=2$)", color='C4')
+    axs.errorbar(time_array, mean_accuracy_mno_solver[2,...], yerr=std_accuracy_mno_solver[2,...], fmt='-o', label=rf"Neural operator ($s=3$)", color='C5')
     axs.legend()
     axs.set_xlabel("Time")
     axs.set_ylabel(r"Rel. $L^2$ error")
@@ -178,7 +178,7 @@ def nrollouts_plot():
     
 def cost_accuracy_plot():
     # use the first nt steps to compute error
-    nt_error, nt = 30, 50
+    nt_error, nt = 1, 50
     
     cost_accuracy_traditional_solver_data = np.load('data/cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
     # np.array of size (n_downsample, n_trial, 2)
@@ -254,7 +254,7 @@ def cost_accuracy_plot():
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
     axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
-                label=f'MNO')
+                label=f'Neural operator')
     
     axs[0].set_xlabel(r"Rel. $L^2$ error")
     axs[0].set_ylabel("Floating-point cost")
@@ -291,7 +291,7 @@ def cost_accuracy_plot():
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
     axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
-                label=f'MNO (GPU)')
+                label=f'Neural operator (GPU)')
 
     axs[1].errorbar(mean_accuracy_mno_solver[...,0], mean_cost_mno_solver[...,1], xerr=std_accuracy_mno_solver[...,0], yerr=std_cost_mno_solver[...,1], fmt='o', color='C3')
     log_err = np.log10(mean_accuracy_mno_solver[...,0])
@@ -300,7 +300,7 @@ def cost_accuracy_plot():
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
     axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
-                label=f'MNO (CPU)')
+                label=f'Neural operator (CPU)')
     
 
 
@@ -316,6 +316,6 @@ def cost_accuracy_plot():
     fig.savefig(f"figs/navier_stokes_cost_accuracy_{nt_error}.png")    
         
 if __name__ == "__main__":
-    # visualize_data(visualize_prediction=True)
+    visualize_data(visualize_prediction=True)
     cost_accuracy_plot()
     nrollouts_plot()

@@ -8,7 +8,7 @@ import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 from timeit import default_timer
-from mno_train import load_test_data
+from fno_train import load_test_data
 
 # 获取当前文件所在的目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +26,7 @@ np.set_printoptions(precision=10, suppress=True)
 
 
 
-def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial):
+def cost_accuracy_fno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial):
     """
     Neural operator solver error .
     """
@@ -54,9 +54,9 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
         for n_layer_index, n_layer in enumerate(n_layer_values):
             for df_index, df in enumerate(df_values):
                 
-                checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+                checkpoint_path = f"models/FNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
                 
-                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
+                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=False, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
                 model = model.to(device)
 
                 if normalization_x:
@@ -89,7 +89,7 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                     
                     y_pred, y_ref = y_pred.detach().cpu().numpy(), y_ref
                     rel_error = np.linalg.norm(y_pred - y_ref)/np.linalg.norm(y_ref)
-                    cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, grad_layer=True)
+                    cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, grad_layer=False)
                     cost[k_max_index, n_layer_index, df_index, i, 1] = solve_time
                     accuracy[k_max_index, n_layer_index, df_index, i] = rel_error
                     
@@ -100,14 +100,14 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
     return  cost, accuracy 
 
 
-def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df_values, n_train, n_trial = 10):
+def cost_accuracy_fno_solver(downsample_values, k_max_values, n_layer_values, df_values, n_train, n_trial = 10):
     
     cost = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3)) 
     accuracy = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial))
     
     for downsample_index, downsample in enumerate(downsample_values):
         for device in [torch.device('cuda') , torch.device('cpu')]:
-            cost_ds, accuracy_ds  = cost_accuracy_mno_solver_helper(device, downsample, k_max_values = k_max_values, n_layer_values = n_layer_values, df_values = df_values, n_train = n_train, n_trial = n_trial)
+            cost_ds, accuracy_ds  = cost_accuracy_fno_solver_helper(device, downsample, k_max_values = k_max_values, n_layer_values = n_layer_values, df_values = df_values, n_train = n_train, n_trial = n_trial)
             cost[downsample_index, :, :, :, :, 0] = cost_ds[...,0]
             if device.type == 'cpu':
                 cost[downsample_index, :, :, :,:, 1] = cost_ds[...,1]
@@ -118,13 +118,13 @@ def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df
              
                 
 
-    np.savez_compressed('data/cost_accuracy_mno_solver_data.npz', cost=cost, accuracy=accuracy)
+    np.savez_compressed('data/cost_accuracy_fno_solver_data.npz', cost=cost, accuracy=accuracy)
 
     return  cost, accuracy 
 
 
 
-def mno_solver(test_index, downsample):
+def fno_solver(test_index, downsample):
     """
     Neural operator solver .
     """
@@ -152,9 +152,9 @@ def mno_solver(test_index, downsample):
     n_layer = 6 
     df = 64
                 
-    checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+    checkpoint_path = f"models/FNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
     
-    model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
+    model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=False, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
     model = model.to(device)
 
     x_normalizer = UnitGaussianNormalizer.from_state_dict(torch.load(checkpoint_path + "_normalization_x.pth", map_location="cpu", weights_only=True,), device=device)
@@ -168,7 +168,7 @@ def mno_solver(test_index, downsample):
     y_pred = y_normalizer.decode(y_pred)
     y_pred = y_pred.detach().cpu().numpy()[0,...,0]
                     
-    np.savez_compressed('data/mno_solver_data.npz', sol=y_pred)
+    np.savez_compressed('data/fno_solver_data.npz', sol=y_pred)
                 
             
     return  
@@ -180,5 +180,5 @@ if __name__ == "__main__":
     # load parameters
     ###################################
 
-    cost, accuracy  = cost_accuracy_mno_solver(downsample_values = [2, 3, 4], k_max_values = [16], n_layer_values = [4, 5, 6], df_values = [64], n_train=4000, n_trial=100)
-    # mno_solver(test_index=9999, downsample=2)
+    cost, accuracy  = cost_accuracy_fno_solver(downsample_values = [2, 3, 4], k_max_values = [16], n_layer_values = [4, 5, 6], df_values = [64], n_train=4000, n_trial=100)
+    # fno_solver(test_index=9999, downsample=2)

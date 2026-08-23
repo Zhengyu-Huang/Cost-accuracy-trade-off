@@ -10,15 +10,17 @@
 
 module load conda
 
-N_TRAIN=4000
-K_MAX=8
+
+
+N_TRAIN=8000
+K_MAX=4
 N_LAYER=4
-DF=64
+DF=16
 DOWNSAMPLE=2
 python mno_train.py --n_train $N_TRAIN \
     --k_max $K_MAX \
     --n_layer $N_LAYER \
     --df $DF \
     --downsample $DOWNSAMPLE \
-    > logs/mno_train.log
+    > logs/N${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}_df${DF}_downsample${DOWNSAMPLE}.log
 

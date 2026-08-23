@@ -322,10 +322,11 @@ def compute_rel_l2_err(fine_file = "patch_L.vtk", coarse_file = "patch_M.vtk", m
     
 if __name__ == "__main__":
     openfoam_folder="/lustre/home/2306192137/OpenFOAM/"
-    large_mesh = openfoam_folder + "drivaerFastback_L/postProcessing/car/4000/patch.vtk"
-    large_short_mesh = openfoam_folder + "drivaerFastback_L/postProcessing/car/2000/patch.vtk"
-    middle_mesh = openfoam_folder + "drivaerFastback_M/postProcessing/car/1000/patch.vtk"
-    small_mesh = openfoam_folder + "drivaerFastback_S/postProcessing/car/1000/patch.vtk"
+    test_name = "E_S_WW_WM_001" #"drivaerFastback"
+    large_mesh = openfoam_folder + test_name + "_L/postProcessing/car/7000/patch.vtk"
+    large_short_mesh = openfoam_folder + test_name + "_L/postProcessing/car/2000/patch.vtk"
+    middle_mesh = openfoam_folder + test_name + "_M/postProcessing/car/1000/patch.vtk"
+    small_mesh = openfoam_folder + test_name + "_S/postProcessing/car/1000/patch.vtk"
     max_projection_distance = 1e-2
     print("Compare large meshes with different number of steps")
     compute_rel_l2_err(fine_file = large_mesh, coarse_file = large_short_mesh, max_projection_distance=max_projection_distance)

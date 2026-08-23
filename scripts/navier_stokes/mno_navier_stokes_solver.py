@@ -266,7 +266,7 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                         error[j] = np.linalg.norm(y_ref[0, j,...] - y_pred[0, j,...]) * np.sqrt(dx1*dx2)
                         rel_error[j] = np.linalg.norm(y_ref[0, j,...] - y_pred[0, j,...])/(np.linalg.norm(y_ref[0, j,:]))
 
-                    cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, mesh_type="structured")
+                    cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, grad_layer=True)
                     cost[k_max_index, n_layer_index, df_index, i, 1] = sol_time_ave
                     accuracy[k_max_index, n_layer_index, df_index, i,:] = rel_error
                     

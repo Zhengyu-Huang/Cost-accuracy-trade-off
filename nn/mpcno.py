@@ -1190,17 +1190,17 @@ def mpcno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, l
     C_proj = 2*ne*fc_dim*fc_dim + 2*ne*fc_dim*out_dim + c_sigma*ne*fc_dim
     Cost = C_lift + C_proj
     if layer_selection["grad"] and not layer_selection["geo"] and not layer_selection["geointegral"]:
-        C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (3+c_sigma)*fc_dim)*ne + fc_dim*ne
+        C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (4+c_sigma)*fc_dim)*ne  
         Cost += nlayer*C_layer_unstru
     elif layer_selection["grad"] and layer_selection["geo"] and layer_selection["geointegral"]:
-        C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (3+c_sigma)*fc_dim)*ne + fc_dim*ne
+        C_layer_unstru = K*(12*fc_dim + 4*dim)*ne + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*(2*dim+1)*fc_dim*(dim*ne) + ((2*dim+4)*fc_dim*fc_dim + (4+c_sigma)*fc_dim)*ne  
         Cost += nlayer*C_layer_unstru
         # gradient of normal
         Cost += 2*(2*dim+1)*dim*(dim*ne)
         # geo term
-        Cost += nlayer * ne * fc_dim * (4*fc_dim + 2*(dim*dim+dim) -2) 
+        Cost += nlayer * ne * fc_dim * (4*fc_dim + 2*(dim*dim+dim) + 2) 
         # geo integral term
-        Cost += nlayer * ne * fc_dim * (fc_dim*(4*dim+6) + 2*fc_dim - 3)
+        Cost += nlayer * ne * 2*fc_dim * (dim + 2*fc_dim*(dim+1) - 1)
     else:
         error("Have not implemented")
     
