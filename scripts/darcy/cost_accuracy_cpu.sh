@@ -1,4 +1,12 @@
 #!/bin/bash
+# Purpose: run the active Firedrake entry point for one representative FEM solve.
+# Run from: scripts/darcy (all data, log, and output paths are relative).
+# Requires: Slurm on the recorded module stack, the Firedrake virtualenv below,
+#           raw sample ../../data/darcy/darcy_data_09999.npy, and data/logs dirs.
+#           This is a CPU job; no GPU is requested.
+# Outputs: data/traditional_solver_data.npz, logs/multigrid_darcy_solver.log,
+#          and the Slurm stream cpu.out.
+# Example: sbatch cost_accuracy_cpu.sh
 #SBATCH -o cpu.out
 #SBATCH --qos=low
 #SBATCH -J cpu
@@ -20,4 +28,3 @@ unset OMPI_MCA_mtl
 . /lustre/home/2306192137/src/venv-firedrake/bin/activate
 
 python multigrid_darcy_solver.py  > logs/multigrid_darcy_solver.log
-

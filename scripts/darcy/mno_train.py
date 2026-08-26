@@ -1,3 +1,11 @@
+"""Train one modified neural operator (MNO) for the Darcy benchmark.
+
+Run from ``scripts/darcy``. Training reads the requested leading samples and
+the final 1,000 test samples from ``../../data/darcy`` and writes the model and
+normalizer checkpoints below ``models/``. A CUDA device is used when available.
+Example: ``python3 mno_train.py --n_train 4000 --k_max 16 --n_layer 4 --df 64 --downsample 2``.
+"""
+
 import sys
 import os
 import math 
@@ -8,11 +16,9 @@ import torch.nn as nn
 import torch.optim as optim
 from timeit import default_timer
 
-# 获取当前文件所在的目录
+# Add the project root so the shared neural-operator modules can be imported.
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# 向上两级找到项目根目录
 project_root = os.path.dirname(os.path.dirname(current_dir))
-# 添加到路径
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 from nn.mno import MNO2d, MNO_train, setup_model
@@ -21,14 +27,15 @@ from nn.mno import MNO2d, MNO_train, setup_model
 np.set_printoptions(precision=10, suppress=True)
 
 def preprocess_data(n_train, n_test, downsample = 1):
-    '''
-    参数：
-    n_train: 训练样本数量
-    n_test: 测试样本数量
-    '''
+    """Load disjoint training/test sets and construct operator input channels.
+
+    Each input has shape ``(nx + 1, ny + 1, 3)`` with permeability and two
+    coordinate channels; each target has one pressure-solution channel.
+    ``downsample`` is the exponent in the spatial stride ``2**downsample``.
+    """
     n_file = 10000
     
-    # the data is on 513 by 513 array 
+    # Raw fields have 512 cells and therefore 513 nodes per direction.
     n = 512
     stride = 2**downsample 
     
@@ -42,10 +49,10 @@ def preprocess_data(n_train, n_test, downsample = 1):
     dx1 = dx2 = L/n
     
     X, Y = [], []
+    # Train on the first n_train files and test on the final n_test files.
     for i in list(range(n_train)) + [n_file + x for x in range(-n_test, 0)]:
         data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
-        # data : n by n by 2 array. 
-        # kappa, u
+        # The final axis stores permeability and the reference solution.
         data = data[0::stride, 0::stride, :]
         X.append(np.stack([data[:,:,0], x1_grid, x2_grid], axis=2))    # kappa, x, y
         Y.append(data[:,:,1:])                                         # u
@@ -70,16 +77,17 @@ def load_test_data(test_data_indices, downsample):
 
     Parameters:
         test_data_indices (list of int): testing file indices.
-        downsample (int): Downsampling factor (2**downsample). Default 1 => no downsampling.
+        downsample (int): Exponent in the spatial stride ``2**downsample``.
         
     Returns:
-        x_test (torch.Tensor): Test tensors [n_test_file, nx, ny, in_dim].
+        x_test (np.ndarray): Inputs shaped [n_test, nx + 1, ny + 1, 3].
+        y_test (np.ndarray): Targets shaped [n_test, nx + 1, ny + 1, 1].
         dx1, dx2 (float): Grid spacings in each direction (both equal).
     """
     # --- Constants derived from the raw data format ---
-    n_file = 10000          # total number of available .npy files (0 … 1999)
+    n_file = 10000          # total number of available .npy files
     assert all(0 <= idx < 10000 for idx in test_data_indices)
-    n = 512                 # original spatial resolution (256×256 grid)
+    n = 512                 # original number of cells per direction
     
     stride = 2**downsample 
     n = n // stride
@@ -97,8 +105,7 @@ def load_test_data(test_data_indices, downsample):
     for i in test_data_indices:
         data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
         data = data[0::stride, 0::stride, :]
-        # data : n by n by 2 array. 
-        # kappa, u
+        # The final axis stores permeability and the reference solution.
         
         X.append(np.stack([data[:,:,0], x1_grid, x2_grid], axis=2))    # kappa, x, y
         Y.append(data[:,:,1:])     
@@ -118,9 +125,7 @@ def load_test_data(test_data_indices, downsample):
 if __name__ == "__main__":
     
     
-    ###################################
-    # load parameters
-    ###################################
+    # Parse one training configuration; shell scripts can sweep these options.
 
     parser = argparse.ArgumentParser(description='Train model with different configurations and options.')
 
@@ -158,7 +163,7 @@ if __name__ == "__main__":
 
     normalization_x = True
     normalization_y = True
-    normalization_dim_x = [0,1] #channel-wise normalization
+    normalization_dim_x = [0,1] # channel-wise normalization
     normalization_dim_y = []
     non_normalized_dim_x = 0
     non_normalized_dim_y = 0
@@ -175,6 +180,4 @@ if __name__ == "__main__":
     
 
     
-
-
 
