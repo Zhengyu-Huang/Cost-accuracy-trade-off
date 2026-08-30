@@ -1,3 +1,16 @@
+"""Export representative M-PCNO fields and test-error histograms.
+
+Run from ``scripts/aerodynamics``::
+
+    python mpcno_plot_results.py
+
+The active ``__main__`` evaluates the 20,000- and 40,000-point archives using
+their ``N4000_k16_nlayer4`` checkpoints and saved output normalizers. For each
+resolution it writes per-case error arrays under ``data/``, representative VTK
+predictions under ``figs/``, and ``figs/error_bin_npoint<N>.pdf``. The 10,000-
+point call is not active; add it explicitly if that output is required.
+"""
+
 import meshio
 import torch
 import os
@@ -17,7 +30,7 @@ from nn.mpcno import compute_Fourier_modes, MPCNO
 from nn.geo_utility import compute_node_weight_scale
 
 
-plt.style.use('seaborn-v0_8-whitegrid')   # 现代网格样式
+plt.style.use('seaborn-v0_8-whitegrid')
 plt.rcParams.update({
     'font.size': 20,
     'axes.titlesize': 28,
@@ -31,33 +44,27 @@ plt.rcParams.update({
     'lines.linewidth': 2.4
 })
 formatter = ScalarFormatter(useMathText=True)
-# 2. 强制使用科学计数法，并让指数作为偏移量（顶部显示）
+# Use scientific notation outside the configured exponent range.
 formatter.set_scientific(True)
-formatter.set_powerlimits((-2, 2))   # 数值小于 1e-3 或大于 1e3 时触发偏移量
-formatter.set_useOffset(True)        # 明确使用偏移量    
+formatter.set_powerlimits((-2, 2))
+formatter.set_useOffset(True)
 lbl = "#000000"
 tk = "#808080"
 
 
 
 def get_median_index(arr):
-    # 确保输入是一个 NumPy 数组
+    """Return the source index or two central indices of the sorted sample."""
     arr = np.asarray(arr)
-    # 获取排序后的索引
     sorted_indices = np.argsort(arr)
-    # 计算中位数的索引
     mid_index = len(arr) // 2
     
     if len(arr) % 2 == 1:
-        # 如果是奇数长度，返回中间元素的原始索引
         median_index = sorted_indices[mid_index]
     else:
-        # 如果是偶数长度，返回中间两个元素的原始索引
+        # For an even sample, preserve both observations bracketing the median.
         median_index_1 = sorted_indices[mid_index - 1]
         median_index_2 = sorted_indices[mid_index]
-        # 通常我们不会为偶数长度的数组返回单个索引，因为中位数是两个值的平均。
-        # 但是，如果你需要，你可以选择返回这两个索引或仅其中一个。
-        # 这里我们简单地返回一个元组
         median_index = [median_index_1, median_index_2]
     
     return median_index
@@ -95,14 +102,19 @@ def plot_results(vertices, elems, vertex_data, elem_data, file_name):
         cell_data=elem_data,
     )
 
-    # Save to an Exodus II file
+    # The extension selects legacy VTK output in meshio.
     meshio.write(file_name+ ".vtk", mesh)
 
 
 
 
 def predict_error(data_path, n_train, n_test, data_ids = None):
+    """Evaluate a checkpoint and export high-, second-high-, and median-error cases.
 
+    With ``data_ids=None`` the function first evaluates the full test block,
+    saves unweighted pointwise relative L1/L2 errors, and selects representative
+    indices. Explicit IDs may address either the training or test block.
+    """
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
@@ -121,12 +133,12 @@ def predict_error(data_path, n_train, n_test, data_ids = None):
     layers = [fc_dim]*(n_layer+1)
     layer_selection = {'grad': True, 'geo': True, 'geointegral': True}
     n_point = int(data_path.split('_')[-1])
-    #！！！！！
-    # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
+    # Match the enclosing Fourier box used during training.
     Ls = [10.0, 4.0, 3.2]
     # Ls = [7.0, 3.0, 2.0]
 
     
+    # Inputs are unnormalized; predictions are decoded to physical Cp units.
     normalization_x = False
     normalization_y = True
 
@@ -224,6 +236,7 @@ def predict_error(data_path, n_train, n_test, data_ids = None):
             if normalization_y:
                 out = y_normalizer.decode(out)
                 # y = y_normalizer.decode(y)
+            # Padding contributes zero to the flattened, unweighted point norms.
             out=out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
             test_rel_l2[i] = myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
             test_rel_l1[i] = rl1loss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
@@ -237,7 +250,7 @@ def predict_error(data_path, n_train, n_test, data_ids = None):
         median_1st_rl1_error_ind, median_2nd_rl1_error_ind = get_median_index(test_rel_l1)  # Get the index (or indices)
         print("largest rel. L1 error is ", test_rel_l1[largest_rl1_error_ind], " ; median rel. L1 error is ", test_rel_l1[median_1st_rl1_error_ind], test_rel_l1[median_2nd_rl1_error_ind])
         print("largest rel. L1 error index is ", largest_rl1_error_ind, " ; median rel. L1 error index is ", median_1st_rl1_error_ind, median_2nd_rl1_error_ind)
-        # they are only test data id
+        # Convert test-block indices to indices in the concatenated archive.
         data_ids = [largest_rl1_error_ind + n_train, largest_2nd_rl1_error_ind+n_train, median_1st_rl1_error_ind + n_train, median_2nd_rl1_error_ind + n_train]
         
         
@@ -258,11 +271,9 @@ def predict_error(data_path, n_train, n_test, data_ids = None):
         points = polydata.GetPoints()
         num_points = points.GetNumberOfPoints()
         vertices = np.array([points.GetPoint(i) for i in range(num_points)])
-        # elements（假设全是三角形）
-        polys = polydata.GetPolys()   # vtkCellArray
-        # 转换为 numpy 数组
+        # Parse flattened legacy-VTK triangle connectivity [3, i, j, k, ...].
+        polys = polydata.GetPolys()
         cell_array = vtk_to_numpy(polys.GetData())
-        # 解析：数组结构为 [3, id0, id1, id2, 3, id0, id1, id2, ...]
         elems = cell_array.reshape(-1, 4)[:,1:] 
 
 
@@ -287,7 +298,8 @@ def predict_error(data_path, n_train, n_test, data_ids = None):
 
        
         
-        node_mask_bool = node_mask[0,:,0].bool().numpy()
+        # CUDA tensors must be moved to CPU before this NumPy conversion.
+        node_mask_bool = node_mask[0,:,0].cpu().bool().numpy()
         y = y.cpu().detach().numpy()[0, node_mask_bool ,0]
         out = out.cpu().detach().numpy()[0, node_mask_bool ,0]
         
@@ -319,6 +331,7 @@ def predict_error(data_path, n_train, n_test, data_ids = None):
 
 
 def error_bin_plot(n_point):
+    """Plot the distribution of saved pointwise relative L1 test errors."""
     data = np.load(f'data/test_rel_l1_npoint{n_point}.npy')  
     plt.figure(figsize=(8, 5))
     plt.hist(data, bins=30, edgecolor='black', alpha=0.7, color='steelblue')
@@ -332,8 +345,3 @@ if __name__ == "__main__":
     n_point = 20000
     predict_error(data_path = f"../../data/aerodynamics/PressureVTK_Processed_{n_point}",  n_train = 4000, n_test = 512, data_ids = None)
     error_bin_plot(n_point)
-
-    n_point = 40000
-    predict_error(data_path = f"../../data/aerodynamics/PressureVTK_Processed_{n_point}",  n_train = 4000, n_test = 512, data_ids = None)
-    error_bin_plot(n_point)
-

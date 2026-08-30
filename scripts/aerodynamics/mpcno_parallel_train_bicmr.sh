@@ -1,4 +1,10 @@
 #!/bin/bash
+# Purpose: BICMR-cluster variant of the two-GPU, 10k-point M-PCNO training job.
+# Run from scripts/aerodynamics:  sbatch mpcno_parallel_train_bicmr.sh
+# Requires: the 4000/512 preprocessed 10k archive and the ``fno`` conda
+# environment. Outputs checkpoints under models/ and Slurm output under logs/.
+# The final detached redirection creates/truncates an extra log file but does
+# not capture torchrun output in the checked-in command layout.
 #SBATCH -o logs/MPCNO_parallel_train.out
 #SBATCH -J MPCNO_parallel_train
 #SBATCH --nodes=1 
@@ -9,9 +15,9 @@
 
 source activate fno
 
-export MASTER_ADDR=$(hostname)   # 主节点地址
-export MASTER_PORT=29504         # 主节点端口
-export NCCL_DEBUG=INFO           # 可选：查看NCCL通信信息
+export MASTER_ADDR=$(hostname)   # Single-node rendezvous address.
+export MASTER_PORT=29504         # Rendezvous port; change if already occupied.
+export NCCL_DEBUG=INFO           # Emit NCCL communication diagnostics.
 
 echo "Starting distributed training on $(hostname)"
 echo "Master address: $MASTER_ADDR"

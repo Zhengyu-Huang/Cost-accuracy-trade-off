@@ -1,4 +1,9 @@
 #!/bin/bash
+# Purpose: preprocess decimated 10k surfaces into padded M-PCNO mesh tensors.
+# Run from scripts/aerodynamics:  sbatch mpcno_preprocess_data.sh
+# Requires: all category directories below PressureVTK_Processed_10000 and the
+# ``pytorch`` environment. The active command loads at most 400 cases/category.
+# Outputs mpcno_data.npz and mpcno_data_names_list.npy in that data directory.
 #SBATCH -o logs/Preprocess_data_vertex_centered.out
 #SBATCH --qos=low
 #SBATCH -p C064M0256G
