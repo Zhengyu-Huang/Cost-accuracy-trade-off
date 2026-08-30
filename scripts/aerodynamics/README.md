@@ -283,13 +283,13 @@ medium- and small-mesh (`M` and `S`) results with the corresponding
 valid vertices of each comparison surface, compute the discrete pointwise
 relative $L^1$ error in the surface pressure coefficient:
 
-$$
+```math
 \varepsilon_{L^1}
 =
 \frac{\sum_{i \in \mathcal{V}}
 \left|C_{p,i}-C_{p,i}^{\mathrm{ref}}\right|}
-{\sum_{i \in \mathcal{V}}\left|C_{p,i}^{\mathrm{ref}}\right|},
-$$
+{\sum_{i \in \mathcal{V}}\left|C_{p,i}^{\mathrm{ref}}\right|}.
+```
 
 where $\mathcal{V}$ is the set of valid comparison-surface vertices and
 $C_{p}^{\mathrm{ref}}$ denotes the mapped reference field.
