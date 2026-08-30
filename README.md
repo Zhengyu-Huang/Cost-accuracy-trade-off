@@ -202,14 +202,6 @@ The supplied Slurm files are environment-specific templates rather than portable
 
 Raw datasets, trained checkpoints, and intermediate result archives are not stored in this repository. The Darcy and Navier–Stokes datasets can be generated with the supplied classical solvers; the vehicle workflow uses surface data derived from [DrivAerNet++](https://github.com/Mohamedelrefaie/DrivAerNet), which must be obtained separately under the dataset's terms.
 
-The current drivers evaluate the classical and neural methods on nonidentical sets drawn from the same benchmark distributions. Smaller evaluation sets are used for the classical methods because these simulations are substantially more expensive and exhibit less sample-to-sample variability in the present experiments:
-
-
-- **Darcy flow:** the finite-element sweep uses the final 10 samples, whereas the neural operator sweeps use the final 100 samples.
-- **Navier–Stokes flow:** the spectral sweep uses the first 10 trajectories, whereas the neural-operator sweep uses the final 100 trajectories.
-- **Vehicle aerodynamics:** the neural operator uses 512 test geometries, whereas the OpenFOAM averages use six selected geometries covering the three body styles because geometry-specific reference simulations are expensive.
-
-
 ## Citation
 
 If you use this repository, please cite the accompanying manuscript:
