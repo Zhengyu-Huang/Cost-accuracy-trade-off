@@ -1,21 +1,16 @@
 # Darcy Flow Benchmark
 
-This directory contains the research drivers for the main-paper comparison between bilinear finite
-elements with geometric multigrid and the modified Fourier neural operator
-(MNO) for two-dimensional Darcy flow. The benchmark reports relative
-$L^2$ error, estimated floating-point work, and CPU/GPU wall-clock runtime
-in the post-training, many-query regime.
+This directory contains the research drivers for the main-paper comparison between bilinear finite elements with geometric multigrid and the modified Fourier neural operator (MNO) for two-dimensional Darcy flow. The benchmark reports relative
+$L^2$ error, estimated floating-point work, and CPU/GPU wall-clock runtime in the post-training, many-query regime.
 
 The problem is
 
 $$
--\nabla\!\cdot\!\left(a\nabla u\right)=1\quad\text{in }[0,1]^2,
+-\nabla \cdot \left(a\nabla u\right)=1\quad\text{in }[0,1]^2,
 \qquad u=0\quad\text{on the boundary},
 $$
 
-where the binary permeability field $a\in\{1,10\}$ is obtained by
-thresholding a Gaussian random field. The reference data use a
-$512\times512$ quadrilateral mesh.
+where the binary permeability field $a\in\{1,10\}$ is obtained by thresholding a Gaussian random field. The reference data use a $512\times512$ quadrilateral mesh.
 
 ## Representative solution
 
@@ -42,8 +37,7 @@ $512\times512$ quadrilateral mesh.
   runs both `torch.device("cuda")` and `torch.device("cpu")`.
 - Slurm only when using the supplied `.sh` launchers.
 
-The repository does not provide a locked environment. Run all commands below
-from `scripts/darcy`, because the programs use paths relative to that directory.
+The repository does not provide a locked environment. Run all commands below from `scripts/darcy`, because the programs use paths relative to that directory.
 
 ## Data and directory layout
 
@@ -69,28 +63,21 @@ scripts/darcy/
   models/     Model and normalization checkpoints
 ```
 
-Each `darcy_data_XXXXX.npy` file has shape `(513, 513, 2)`. Channel 0 is
-the permeability $a$, channel 1 is the reference pressure $u$, and entry
-`[i, j]` corresponds to $(i/512,j/512)$.
+Each `darcy_data_XXXXX.npy` file has shape `(513, 513, 2)`. Channel 0 is the permeability $a$, channel 1 is the reference pressure $u$, and entry `[i, j]` corresponds to $(i/512,j/512)$.
 
-Large data files and trained checkpoints are not committed to the repository.
-Training with $N$ samples reads files `0,...,N-1` and uses files
-`9000,...,9999` as its 1,000-sample test set.
+Large data files and trained checkpoints are not committed to the repository. Training with $N$ samples reads files `0,...,N-1` and uses files `9000,...,9999` as its 1,000-sample test set.
 
 ## Reproduction workflow
 
 ### 1. Generate the reference data
 
-The generator is expensive: its current configuration creates 10,000
-full-resolution Firedrake solutions. Invoke the function explicitly:
+The generator is expensive: its current configuration creates 10,000 full-resolution Firedrake solutions. Invoke the function explicitly:
 
 ```bash
 python -c "from multigrid_darcy_solver import generate_data; generate_data()"
 ```
 
-The current `generate_data.sh` is a `wm2` environment template, but it does
-**not** call `generate_data()`: it runs the active `__main__` block described
-below. Adapt its final command before using it as a data-generation job.
+The current `generate_data.sh` is a `wm2` environment template, but it does **not** call `generate_data()`: it runs the active `__main__` block described below. Adapt its final command before using it as a data-generation job.
 
 ### 2. Evaluate the finite-element baseline
 
@@ -100,23 +87,13 @@ Run the complete grid sweep with
 python -c "from multigrid_darcy_solver import cost_accuracy_traditional_solver; cost_accuracy_traditional_solver()"
 ```
 
-This evaluates $n=512,256,128,64,32,16$ on the last 10 data samples. The
-solver uses a multiplicative geometric-multigrid V-cycle with
-Richardson–Jacobi level smoothing and a direct coarse solve; the benchmark
-sets a relative residual tolerance of $10^{-6}$ and a maximum of 15
-Richardson iterations. Results are written to
-`data/cost_accuracy_traditional_solver_data.npz`, with arrays for floating-point
-cost, CPU time, relative error, and representative solutions.
+This evaluates $n=512,256,128,64,32,16$ on the last 10 data samples. The solver uses a multiplicative geometric-multigrid V-cycle with Richardson–Jacobi level smoothing and a direct coarse solve; the benchmark sets a relative residual tolerance of $10^{-6}$ and a maximum of 15 Richardson iterations. Results are written to `data/cost_accuracy_traditional_solver_data.npz`, with arrays for floating-point cost, CPU time, relative error, and representative solutions.
 
 ### 3. Train the modified Fourier neural operator
 
-The main-paper sweep fixes $N=4000$, $k_{\max}=16$, and latent width
-$d_g=64$, then varies the layer count $L\in\{4,5,6\}$ and grid size
-$n\in\{128,64,32\}$. The `--downsample` argument is an exponent: values
-`2`, `3`, and `4` use strides $2^2$, $2^3$, and $2^4$, respectively.
+The main-paper sweep fixes $N=4000$, $k_{\max}=16$, and latent width $d_g=64$, then varies the layer count $L\in\{4,5,6\}$ and grid size $n\in\{128,64,32\}$. The `--downsample` argument is an exponent: values `2`, `3`, and `4` use strides $2^2$, $2^3$, and $2^4$, respectively.
 
-On Slurm, the nine configurations are encoded by the correctly named shell
-launcher:
+On Slurm, the nine configurations are encoded by the correctly named shell launcher:
 
 ```bash
 sbatch mno_train_parallel.sh
@@ -128,8 +105,7 @@ For a single configuration, run for example
 python mno_train.py --n_train 4000 --k_max 16 --n_layer 4 --df 64 --downsample 2
 ```
 
-Training uses 500 epochs, batch size 8, relative $L^2$ loss, a one-cycle
-learning-rate schedule, and input/output normalization. Each run creates
+Training uses 500 epochs, batch size 8, relative $L^2$ loss, a one-cycle learning-rate schedule, and input/output normalization. Each run creates
 
 ```text
 models/MNO_model_N4000_k16_nlayer4_df64_downsample2.pth
@@ -153,11 +129,7 @@ or, on the original Slurm setup,
 sbatch cost_accuracy_gpu.sh
 ```
 
-The active `__main__` block evaluates all nine configurations on files
-`09900,...,09999`, measures each inference 10 times after a warm-up, and
-benchmarks every downsampled grid on both the GPU and CPU. It writes
-`data/cost_accuracy_mno_solver_data.npz`; the cost channels are estimated
-flops, CPU seconds, and GPU seconds.
+The active `__main__` block evaluates all nine configurations on files `09900,...,09999`, measures each inference 10 times after a warm-up, and benchmarks every downsampled grid on both the GPU and CPU. It writes `data/cost_accuracy_mno_solver_data.npz`; the cost channels are estimated flops, CPU seconds, and GPU seconds.
 
 For the representative field shown in the paper, also run
 
@@ -166,13 +138,11 @@ python -c "from mno_darcy_solver import mno_solver; mno_solver(test_index=9999, 
 python -c "from multigrid_darcy_solver import traditional_solver; traditional_solver(test_index=9999, downsample=3)"
 ```
 
-This uses the $N=4000$, $k_{\max}=16$, $d_g=64$, $L=6$ checkpoint and
-writes `data/mno_solver_data.npz`. The second solves the same test problem using Firedrake on a \(64\times64\) mesh and saves the solution to `data/traditional_solver_data.npz`.
+This uses the $N=4000$, $k_{\max}=16$, $d_g=64$, $L=6$ checkpoint and writes `data/mno_solver_data.npz`. The second solves the same test problem using Firedrake on a \(64\times64\) mesh and saves the solution to `data/traditional_solver_data.npz`.
 
 ### 5. Create the figures
 
-Once both complete cost–accuracy archives and the two representative-solution
-archives exist, run
+Once both complete cost–accuracy archives and the two representative-solution archives exist, run
 
 ```bash
 python cost_accuracy_trade_off.py
@@ -187,12 +157,7 @@ The active `__main__` block creates
 
 ## Install Firedrake on PKU `wm2`
 
-The commands below record the module stack used on PKU's `wm2` cluster. The
-module names and versions are cluster-specific; consult the
-[official Firedrake installation guide](https://www.firedrakeproject.org/install.html)
-for the current general requirements. Firedrake requires Python 3.10 or newer.
-For exact archival reproducibility, also record the Firedrake version installed
-by these commands, because the `release` configuration is updated over time.
+The commands below record the module stack used on PKU's `wm2` cluster. The module names and versions are cluster-specific; consult the [official Firedrake installation guide](https://www.firedrakeproject.org/install.html) for the current general requirements. Firedrake requires Python 3.10 or newer. For exact archival reproducibility, also record the Firedrake version installed by these commands, because the `release` configuration is updated over time.
 
 ### 1. Load the required modules
 
@@ -223,9 +188,7 @@ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/release/scr
 
 ### 3. Build the Firedrake-compatible PETSc version
 
-These instructions use `--no-package-manager`, which tells `firedrake-configure` to
-download and build the external PETSc packages required by its unknown-platform
-configuration rather than relying on distribution-specific packages.
+These instructions use `--no-package-manager`, which tells `firedrake-configure` to download and build the external PETSc packages required by its unknown-platform configuration rather than relying on distribution-specific packages.
 
 ```bash
 git clone --branch $(python3 firedrake-configure --no-package-manager --show-petsc-version) https://gitlab.com/petsc/petsc.git
@@ -239,8 +202,7 @@ cd ..
 
 ### 4. Install Firedrake in a virtual environment
 
-Run these commands from `$HOME/src`, which must contain both `petsc/` and
-`firedrake-configure`:
+Run these commands from `$HOME/src`, which must contain both `petsc/` and `firedrake-configure`:
 
 ```bash
 python3 -m venv venv-firedrake
@@ -266,8 +228,7 @@ pip install --upgrade firedrake
 ```
 ### Use the existing installation on `wm2`
 
-For each new login session, reload the same modules and reactivate the virtual
-environment:
+For each new login session, reload the same modules and reactivate the virtual environment:
 
 ```bash
 module load anaconda3/2024.10.1
