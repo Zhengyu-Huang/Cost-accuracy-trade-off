@@ -137,7 +137,13 @@ def solution_plot():
     fig.tight_layout()
     fig.savefig("figs/cost_accuracy_traditional_solver.pdf") 
     
-    
+
+def plot_with_dashed_errors(err):
+    data_line, caplines, barlinecols = err.lines
+    # Make the error-bar segments dashed.
+    for bars in barlinecols:
+        bars.set_linestyle(":")
+
 def nrollouts_plot():
     
     cost_accuracy_traditional_solver_data = np.load('data/cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
@@ -152,20 +158,28 @@ def nrollouts_plot():
     axs.grid(True, linestyle=':', linewidth=0.5, alpha=0.6)
     
     mean_accuracy_traditional_solver = np.mean(accuracy_traditional_solver, axis=1)       
-    std_accuracy_traditional_solver  = np.std(accuracy_traditional_solver, axis=1, ddof=1)/5
+    std_accuracy_traditional_solver  = np.std(accuracy_traditional_solver, axis=1, ddof=1)
     mean_accuracy_mno_solver = np.mean(accuracy_mno_solver, axis=1)
-    std_accuracy_mno_solver  = np.std(accuracy_mno_solver, axis=1, ddof=1)/5       
+    std_accuracy_mno_solver  = np.std(accuracy_mno_solver, axis=1, ddof=1)      
     
     nt = 50
     time_array = np.linspace(0, nt, nt+1)
     # axs[0].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,0], 'o-')
     # axs.errorbar(time_array, mean_accuracy_traditional_solver[0,0,...], yerr=std_accuracy_traditional_solver[0,0,...], fmt='-s', label=rf"Spectral method ($256 \times 256$)", color='C0')
-    axs.errorbar(time_array, mean_accuracy_traditional_solver[1,0,...], yerr=std_accuracy_traditional_solver[1,0,...], fmt='-s', label=rf"Spectral method ($128 \times 128$)", color='C0')
-    axs.errorbar(time_array, mean_accuracy_traditional_solver[2,0,...], yerr=std_accuracy_traditional_solver[2,0,...], fmt='-s', label=rf"Spectral method ($64 \times 64$)", color='C1')
-    axs.errorbar(time_array, mean_accuracy_traditional_solver[3,0,...], yerr=std_accuracy_traditional_solver[3,0,...], fmt='-s', label=rf"Spectral method ($32 \times 32$)", color='C2')
-    axs.errorbar(time_array, mean_accuracy_mno_solver[0,...], yerr=std_accuracy_mno_solver[0,...], fmt='-o', label=rf"Neural operator ($s=1$)", color='C3')
-    axs.errorbar(time_array, mean_accuracy_mno_solver[1,...], yerr=std_accuracy_mno_solver[1,...], fmt='-o', label=rf"Neural operator ($s=2$)", color='C4')
-    axs.errorbar(time_array, mean_accuracy_mno_solver[2,...], yerr=std_accuracy_mno_solver[2,...], fmt='-o', label=rf"Neural operator ($s=3$)", color='C5')
+    err = axs.errorbar(time_array, mean_accuracy_traditional_solver[1,0,...], yerr=std_accuracy_traditional_solver[1,0,...], fmt='-s', label=rf"Spectral method ($128 \times 128$)", color='C0')
+    plot_with_dashed_errors(err)
+    err = axs.errorbar(time_array, mean_accuracy_traditional_solver[2,0,...], yerr=std_accuracy_traditional_solver[2,0,...], fmt='-s', label=rf"Spectral method ($64 \times 64$)", color='C1')
+    plot_with_dashed_errors(err)
+    err = axs.errorbar(time_array, mean_accuracy_traditional_solver[3,0,...], yerr=std_accuracy_traditional_solver[3,0,...], fmt='-s', label=rf"Spectral method ($32 \times 32$)", color='C2')
+    plot_with_dashed_errors(err)
+    err = axs.errorbar(time_array, mean_accuracy_mno_solver[0,...], yerr=std_accuracy_mno_solver[0,...], fmt='-o', label=rf"Neural operator ($s=1$)", color='C3')
+    plot_with_dashed_errors(err)
+    err = axs.errorbar(time_array, mean_accuracy_mno_solver[1,...], yerr=std_accuracy_mno_solver[1,...], fmt='-o', label=rf"Neural operator ($s=2$)", color='C4')
+    plot_with_dashed_errors(err)
+    err = axs.errorbar(time_array, mean_accuracy_mno_solver[2,...], yerr=std_accuracy_mno_solver[2,...], fmt='-o', label=rf"Neural operator ($s=3$)", color='C5')
+    plot_with_dashed_errors(err)
+    
+
     axs.legend()
     axs.set_xlabel("Time")
     axs.set_ylabel(r"Rel. $L^2$ error")
@@ -254,7 +268,7 @@ def cost_accuracy_plot():
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
     axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
-                label=f'Neural operator')
+                label=f'Neural operator ($\\varepsilon^{{{slope:.2f}}}$)' if nt_error==1 else 'Neural operator')
     
     axs[0].set_xlabel(r"Rel. $L^2$ error")
     axs[0].set_ylabel("Floating-point cost")
@@ -263,24 +277,24 @@ def cost_accuracy_plot():
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
 
     
-    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,2], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,2], fmt='s', color='C0')
+    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,2], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,2], fmt='s', color='C2')
     log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
     log_cost = np.log10(mean_cost_traditional_solver[...,2])[1:]
     slope, intercept = np.polyfit(log_err, log_cost, 1)
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
-    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C2', linewidth=2,
                 label=f'Spectral method (GPU)')
     
 
 
-    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,1], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,1], fmt='s', color='C2')
+    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,1], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,1], fmt='s', color='C0')
     log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
     log_cost = np.log10(mean_cost_traditional_solver[...,1])[1:]
     slope, intercept = np.polyfit(log_err, log_cost, 1)
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
-    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C2', linewidth=2,
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
                 label=f'Spectral method (CPU)')
     
 
