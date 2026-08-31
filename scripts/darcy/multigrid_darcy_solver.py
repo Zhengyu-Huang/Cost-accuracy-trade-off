@@ -390,7 +390,7 @@ def cost_accuracy_traditional_solver():
             
             
             rel_error = np.linalg.norm(u_data - u_ref)/np.linalg.norm(u_ref)
-            cost[downsample, i, :] =  271*n*n + m_iteration*(88/3 * nu_iteration + 116/3), cost_cpu_time
+            cost[downsample, i, :] =  (271 + m_iteration*(88/3 * nu_iteration + 116/3))*n*n, cost_cpu_time
             accuracy[downsample, i] = rel_error
             print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time)
 
@@ -460,6 +460,6 @@ if __name__ == "__main__":
     # visualize_data()
 
 
-    # cost_accuracy_traditional_solver()
-    traditional_solver(test_index=9999, downsample=3)
+    cost_accuracy_traditional_solver()
+    # traditional_solver(test_index=9999, downsample=3)
     

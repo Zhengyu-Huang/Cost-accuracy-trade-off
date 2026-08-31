@@ -91,8 +91,7 @@ def cost_accuracy_plot():
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
     axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
-                #label=f'FVM ($\\varepsilon^{{{slope:.2f}}}$)')
-                label=f'FVM')
+                label=f'FVM ($\\varepsilon^{{{slope:.2f}}}$)')
     print("slope is ", slope)
 
     # axs[0].loglog(mean_accuracy_mpcno_solver, mean_cost_mpcno_solver[...,0], 'o-')
@@ -105,8 +104,7 @@ def cost_accuracy_plot():
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
     axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
-                #label=f'Neural operator ($\\varepsilon^{{{slope:.2f}}}$)')
-                label=f'Neural operator')
+                label=f'Neural operator ($\\varepsilon^{{{slope:.2f}}}$)')
     
     axs[0].set_xlabel(r"Rel. $L^1$ error")
     axs[0].set_ylabel("Floating-point cost")
@@ -125,13 +123,13 @@ def cost_accuracy_plot():
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
 
     
-    axs[1].errorbar(mean_accuracy_traditional_solver, mean_cost_traditional_solver[1,...], xerr=std_accuracy_traditional_solver, yerr=std_cost_traditional_solver[1,...], fmt='s', color='C2')
+    axs[1].errorbar(mean_accuracy_traditional_solver, mean_cost_traditional_solver[1,...], xerr=std_accuracy_traditional_solver, yerr=std_cost_traditional_solver[1,...], fmt='s', color='C0')
     log_err = np.log10(mean_accuracy_traditional_solver[1:]) 
     log_cost = np.log10(mean_cost_traditional_solver[1,...])[1:]
     slope, intercept = np.polyfit(log_err, log_cost, 1)
     x_fit = np.linspace(min(log_err), max(log_err), 50)
     y_fit = slope * x_fit + intercept
-    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C2', linewidth=2,
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
                 label=f'FVM (CPU)')
     
 

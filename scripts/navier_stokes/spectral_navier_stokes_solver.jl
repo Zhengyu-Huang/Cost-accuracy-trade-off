@@ -7,30 +7,37 @@ using Printf
 using LinearAlgebra
 using Base.Threads
 
-function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave, nsaves = 101, dev = CPU(); verbose = false )
-    # ============================================================
-    # User parameters
-    # ============================================================
+function integrate_trajectory!(prob, Tsave, nsaves; verbose = false)
+    clock, vars = prob.clock, prob.vars
+    dt = clock.dt
+    save_every_steps = round(Int, Tsave / dt)
+    nx, ny = size(vars.ζ)
+    zeta_data = Array{eltype(vars.ζ)}(undef, nsaves, nx, ny)
+    zeta_data[1, :, :] .= Array(vars.ζ)
 
+    for m in 1:(nsaves - 1)
+        stepforward!(prob, save_every_steps)
+        TwoDNavierStokes.updatevars!(prob)
+        zeta_data[m + 1, :, :] .= Array(vars.ζ)
+        verbose && println("saved snapshot ", m, " at t = ", clock.t)
+    end
+
+    return zeta_data
+end
+
+
+function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave,
+               nsaves = 101, dev = CPU(); verbose = false)
     nν = 1
     μ  = 0.0
     nμ = 0
-    stepper = "RK4"              # explicit RK4
-    
-
-    # ============================================================
-    # Deterministic Kolmogorov forcing
-    # Build forcing in physical space once, FFT once, reuse every step.
-    # ============================================================
+    stepper = "RK4"
 
     function calcF!(Fh, sol, t, clock, vars, params, grid)
         @. Fh = F_hat
         return nothing
     end
 
-    # ============================================================
-    # Build forced problem
-    # ============================================================
     prob = TwoDNavierStokes.Problem(
         dev;
         nx=nx, ny=ny,
@@ -42,40 +49,16 @@ function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave, nsaves = 101, dev = CP
         calcF=calcF!,
     )
 
-    sol, clock, vars, params, grid = prob.sol, prob.clock, prob.vars, prob.params, prob.grid
-
-
     TwoDNavierStokes.set_ζ!(prob, device_array(dev)(ζ0))
     TwoDNavierStokes.updatevars!(prob)
 
-    # ============================================================
-    # Storage: zeta[m+1, :, :] = vorticity at time m*Tsave
-    # ============================================================
-    times = zeros(Float64, nsaves)
-    zeta_data = Array{Float64}(undef, nsaves, nx, ny)
+    dev isa GPU && CUDA.synchronize()
+    start_ns = time_ns()
+    zeta_data = integrate_trajectory!(prob, Tsave, nsaves; verbose)
+    dev isa GPU && CUDA.synchronize()
+    runtime = (time_ns() - start_ns) * 1e-9
 
-    times[1] = 0.0
-    zeta_data[1, :, :] .= Array(vars.ζ)
-
-    save_every_steps = round(Int, Tsave / dt)
-    @assert isapprox(save_every_steps * dt, Tsave; atol=1e-12) "Choose Tsave compatible with dt."
-
-    # ============================================================
-    # Time stepping and saving
-    # ============================================================
-    for m in 1:(nsaves - 1)
-        stepforward!(prob, save_every_steps)
-        TwoDNavierStokes.updatevars!(prob)
-
-        times[m + 1] = clock.t
-        zeta_data[m + 1, :, :] .= Array(vars.ζ)
-
-        if verbose
-            println("saved snapshot ", m, " at t = ", clock.t)
-        end
-    end
-
-    return zeta_data
+    return zeta_data, runtime
 end
 
 
@@ -112,7 +95,7 @@ function taylor_green_vortex_test()
     F_hat = rfft(F_phys_dev)
 
                      
-    zeta_data = solve(nx, ny, L, L, ν, ζ0, F_hat, dt, T, 2, dev; verbose = true)
+    zeta_data, _ = solve(nx, ny, L, L, ν, ζ0, F_hat, dt, T, 2, dev; verbose = true)
 
     # -----------------------------
     # errors
@@ -151,7 +134,7 @@ function generate_data(;nx = 256, ny = 256, ndata = 10)
     zeta0_data = NPZ.npzread("../../data/navier_stokes/navier_stokes_zeta0.npy")
     @threads for i = 1:ndata
         ζ0 = zeta0_data[i,:,:]       
-        zeta_data = solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsaves, nsaves, dev)
+        zeta_data, _ = solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsaves, nsaves, dev)
         # ============================================================
         # Save to NumPy-compatible .npz
         # ============================================================
@@ -183,11 +166,13 @@ function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
 
     Tsaves = 1.0
     L = 1.0
+    data_dir = normpath(joinpath(@__DIR__, "..", "..", "data", "navier_stokes"))
     cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial, nt+1)
     for downsample = 0:n_downsample-1 
         stride = 2^downsample
-        for i = 1:n_trial
-            data = NPZ.npzread(@sprintf("../../data/navier_stokes/navier_stokes_%05d.npy", i-1))
+        for i in 1:n_trial
+            filename = @sprintf("navier_stokes_%05d.npy", 2000 - i)
+            data = NPZ.npzread(joinpath(data_dir, filename))
             # data : nt+2 by n by n array. 
             # F, w_0, w_1, ... , w_nt
             
@@ -200,14 +185,10 @@ function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
 
             n, _ = size(F_phys)            # number of cells in each direction
             ne = n * n
-            start_time = time()
-            zeta_data = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
-            end_time = time()
+
+            zeta_data, cost_cpu_time = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
             
             
-            
-            
-            cost_cpu_time = end_time - start_time
             cost[downsample+1, i, :] .=  [nt*Tsaves/(dt*stride)*(100*ne*log2(ne) + 184*ne), cost_cpu_time]            
             rel_error = [norm(zeta_data[j,:,:] - zeta_data_ref[j,:,:])/norm(zeta_data_ref[j,:,:]) for j = 1:nt+1]
             accuracy[downsample+1, i, :] = rel_error
@@ -256,7 +237,7 @@ function traditional_solver(;test_index, downsample)
 
     n, _ = size(F_phys)            # number of cells in each direction
     ne = n * n
-    zeta_data = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
+    zeta_data, _ = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
 
     NPZ.npzwrite("data/traditional_solver_data.npz", zeta_data)    
             
@@ -305,5 +286,5 @@ end
 
 # taylor_green_vortex_test()
 # generate_data(nx = 256, ny = 256, ndata = 2000)
-traditional_solver(test_index=1999, downsample=2)
-# cost_accuracy_traditional_solver(n_downsample=4, n_trial=10)
+# traditional_solver(test_index=1999, downsample=2)
+cost_accuracy_traditional_solver(n_downsample=4, n_trial=10)
