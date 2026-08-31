@@ -1,3 +1,18 @@
+"""Evaluate recurrent neural-operator rollouts for the Navier–Stokes benchmark.
+
+Run from ``scripts/navier_stokes`` with::
+
+    python3 mno_navier_stokes_solver.py
+
+The active main block benchmarks nine checkpoints on both CUDA and CPU using
+the final 100 raw trajectories, so ``models/``, ``data/``, CUDA support, the
+matching ``MNO_model_*.pth`` files, and
+``../../data/navier_stokes/navier_stokes_01900.npy`` through ``01999.npy`` are
+required.  It writes ``data/cost_accuracy_mno_solver_data.npz``.  The commented
+drivers instead create a representative rollout or rollout-horizon archive;
+this module also imports preprocessing helpers from ``mno_train``.
+"""
+
 import sys
 import os
 import math 
@@ -10,11 +25,9 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from mno_train import preprocess_data, load_test_data
 
-# 获取当前文件所在的目录
+# Resolve project-local imports from the repository root.
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# 向上两级找到项目根目录
 project_root = os.path.dirname(os.path.dirname(current_dir))
-# 添加到路径
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 from nn.mno import MNO2d, MNO_train, setup_model, mno_floating_point_cost
@@ -37,14 +50,14 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
                       If None, no normalization is applied.
         y_normalizer: Normalizer for output states (e.g., mean/std scaling).
                       If None, no denormalization is applied.
-        device: Torch device on which computations are performed (e.g., 'cuda' or 'cpu').
-        x: Initial condition tensor of shape (batch_size, nx, ny, in_channels).
+        x: Initial condition NumPy array of shape (batch_size, nx, ny, in_channels).
            The first `out_dim` channels (default 1) are used as the initial solution.
         nt: Number of time steps to roll out.
+        device: Torch device on which computations are performed (e.g., 'cuda' or 'cpu').
     
     Returns:
-        y_pred: Predicted solution over time, numpy array of shape
-                (batch_size, nt+1, nx, ny, out_dim).
+        Tuple of the predicted trajectory with shape
+        ``(batch_size, nt+1, nx, ny, out_dim)`` and the timed rollout duration.
     """
     
     batch_size, nx, ny, in_dim = x.shape
@@ -69,9 +82,11 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
         # Initialize prediction array: (batch, time, nx, ny, out_dim)
         y_pred = torch.zeros((batch_size, nt+1, nx, ny, out_dim), device=device)
 
-        # initialize solution at 0
+        # Only the vorticity channel is advanced; forcing and coordinates remain fixed.
         y_pred[:, 0, ...] = x[... , :out_dim].clone()
         
+        # Time model rollout only, excluding device transfer and the final CPU copy.
+        # CUDA kernels are not explicitly synchronized inside this timed region.
         start_time = time.perf_counter()
         for i in range(nt):
             x[..., :out_dim] = y_pred[:, i ,...]
@@ -90,7 +105,7 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
 
 def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
     """
-    Neural operator solver error .
+    Plot rollout errors and snapshots for the last five reference trajectories.
     """
     # load reference solution
     nt = 50
@@ -166,7 +181,7 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
 
 def mno_solver(test_index, downsample):
     """
-    Neural operator solver.
+    Roll out one saved trajectory and write its vorticity prediction.
     """
     # load reference solution
     nt = 50
@@ -217,7 +232,10 @@ def mno_solver(test_index, downsample):
 
 def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial):
     """
-    Neural operator solver error .
+    Benchmark model configurations on one device and spatial resolution.
+
+    The final cost axis is ``[single-step FLOP estimate, mean nt-step runtime]``;
+    accuracy stores relative error at all ``nt+1`` saved states.
     """
     # load reference solution
     
@@ -252,7 +270,7 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                 for i in range(n_trial):
                     x = x_test[[i], 0, ...]             #[batch_size , nx , ny , in_dim] 
                     y_ref = x_test[[i], ..., :out_dim]  #[batch_size , nt+1 , nx , ny , out_dim]
-                    # Warm up
+                    # Warm up model/device initialization before the repeated timing loop.
                     y_pred, sol_time = mno_solve(model, x_normalizer, y_normalizer, x, nt, device)
                     sol_time_ave = 0
                     for j in range(n_repeat):
@@ -279,6 +297,11 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
 
 
 def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df_values, n_train, n_trial = 10):
+    """Benchmark all configurations and combine CPU/GPU results.
+
+    The saved cost axis is ``[single-step FLOPs, CPU runtime, GPU runtime]`` and
+    the accuracy device axis is ``[CPU, GPU]``.
+    """
     nt = 50
     cost     = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3))
     accuracy = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2, nt+1))
@@ -303,6 +326,7 @@ def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df
 
 
 def accuracy_mno_solver(nrollouts, n_trial):
+    """Compare long autoregressive trajectories from different training horizons."""
     nt = 50
     dim, in_dim, out_dim, k_max, n_layer, df, downsample = 2, 4, 1, 16, 6, 64, 1
     x_test, dx1, dx2 = load_test_data(np.arange(2000-n_trial, 2000), nt, downsample)
@@ -312,6 +336,7 @@ def accuracy_mno_solver(nrollouts, n_trial):
     n_repeat = 10
     
     for nrollout_index, nrollout in enumerate(nrollouts):
+        # This evaluator expects an explicit suffix for every rollout horizon.
         checkpoint_path = f"models/MNO_model_N10000_k{k_max}_nlayer{n_layer}_df{df}_downsample1_nrollout{nrollout}"    
         model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0, incremental = True, checkpoint_path=checkpoint_path+".pth")
         model = model.to(device)
@@ -343,16 +368,21 @@ def accuracy_mno_solver(nrollouts, n_trial):
 
 
 if __name__ == "__main__":
-    
-    
-    ###################################
-    # load parameters
-    ###################################
-    # mno_solve_visualize(n_layer=5, df=64, downsample=1, k_max=16, n_train=10000)
 
+    #########################################################################
+    # generate cost accuracy plot data
+    #########################################################################
+    
     cost, accuracy = cost_accuracy_mno_solver(downsample_values = [1,2,3], k_max_values = [16], n_layer_values = [4,5,6], df_values = [64], n_train=10000,  n_trial=100)
-    # mno_solver(test_index=1999, downsample=1)
-
-    # accuracy = accuracy_mno_solver(nrollouts = [1,2,3], n_trial = 10)
     
+    #########################################################################
+    # generate representative plot data
+    #########################################################################
+    
+    # mno_solver(test_index=1999, downsample=1)
+    #########################################################################
+    # generate data for the rollout plot with different s
+    #########################################################################
+    
+    # accuracy = accuracy_mno_solver(nrollouts = [1,2,3], n_trial = 10)
     

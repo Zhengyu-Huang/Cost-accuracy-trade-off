@@ -1,3 +1,11 @@
+"""Gaussian random-field samplers used to generate PDE coefficients.
+
+The samplers use spectral/Karhunen--Loeve expansions on one- and
+two-dimensional grids with periodic, homogeneous Dirichlet, or homogeneous
+Neumann boundary conditions. Dedicated ``*_test`` routines provide empirical
+covariance checks and visual diagnostics.
+"""
+
 # Import default modules/packages
 import numpy as np
 import matplotlib.pyplot as plt

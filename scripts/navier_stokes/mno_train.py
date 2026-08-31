@@ -1,3 +1,17 @@
+"""Train one recurrent neural operator and provide trajectory-loading helpers.
+
+Run from ``scripts/navier_stokes``; for the paper configuration, for example::
+
+    python3 mno_train.py --n_train 10000 --k_max 16 --n_layer 4 --df 64 --downsample 1 --n_roll_out 2
+
+Raw ``../../data/navier_stokes/navier_stokes_*.npy`` trajectories and an
+existing ``models/`` directory are required.  The active main block trains one
+CLI-selected configuration for 500 epochs and writes the final checkpoint under
+``models/MNO_model_*.pth`` (plus normalizer files only when normalization is
+enabled).  ``preprocess_data`` and ``load_test_data`` are also intended for
+import by ``mno_navier_stokes_solver.py``.
+"""
+
 import sys
 import os
 import math 
@@ -8,11 +22,9 @@ import torch.nn as nn
 import torch.optim as optim
 from timeit import default_timer
 
-# 获取当前文件所在的目录
+# Resolve project-local imports from the repository root.
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# 向上两级找到项目根目录
 project_root = os.path.dirname(os.path.dirname(current_dir))
-# 添加到路径
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 from nn.mno import setup_model, MNO_recurrent_train
@@ -20,28 +32,23 @@ from nn.mno import setup_model, MNO_recurrent_train
 
 def preprocess_data(n_train, n_test, nt, downsample, n_roll_out = 1):
     """
-    Preprocess Navier‑Stokes simulation data for training and testing.
+    Assemble autoregressive Navier–Stokes training and test samples.
 
-    The raw data are stored in multiple .npy files, each containing a sequence of
-    vorticity fields over time plus a constant forcing field. This function loads
-    the required files, optionally downsamples the spatial grid, and assembles
-    input/output pairs for autoregressive and reccusive training 
-    x(0) -> x(1) -> x(2) ... ->  x(n_roll_out) 
-    
+    Each raw file has layout ``[forcing, omega_0, ..., omega_nt]``.  An input has
+    channels ``[omega_t, forcing, x, y]`` and its target contains the next
+    ``n_roll_out`` vorticity fields on the final axis.
 
     Parameters:
         n_train (int): Number of training samples to extract.
         n_test (int): Number of testing samples to extract.
-        nt = 20 (int): Number of time steps load from per file (excluding initial condition)
-        downsample (int): Downsampling factor (2**downsample). Default 1 => no downsampling.
-        roll_out (bool): If True, create consecutive time‑step pairs for rollout
-                         training; if False, use only the first and the nt-th time steps.
+        nt (int): Number of transitions considered in each trajectory.
+        downsample (int): Exponent of the spatial stride, i.e. stride=2**downsample.
+        n_roll_out (int): Number of consecutive future fields in each target.
 
     Returns:
-        x_train (torch.Tensor [n_train, ...., in_dim])
-        y_train (torch.Tensor [n_test, ...., out_dim * n_roll_out]): Training input/output tensors.
-        x_test (torch.Tensor [n_test, ...., in_dim])
-        y_test (torch.Tensor [n_test, ...., out_dim * n_roll_out]): Test input/output tensors.
+        x_train, y_train: Training tensors with layouts ``[sample,nx,ny,4]``
+            and ``[sample,nx,ny,n_roll_out]``.
+        x_test, y_test: Test tensors with the same respective layouts.
         dx1, dx2 (float): Grid spacings in each direction (both equal).
     """
     # --- Constants derived from the raw data format ---
@@ -49,9 +56,7 @@ def preprocess_data(n_train, n_test, nt, downsample, n_roll_out = 1):
     n = 256                # original spatial resolution (256×256 grid)
     
     
-    # Number of data samples contributed by one file
-    # If roll_out: each file provides 'nt' consecutive pairs (20 samples)
-    # If not rolling: each file provides only 1 pair (first and last time step)
+    # Every valid window must fit all n_roll_out targets within the trajectory.
     data_per_file = nt - n_roll_out + 1
     
     stride = 2**downsample 
@@ -67,21 +72,19 @@ def preprocess_data(n_train, n_test, nt, downsample, n_roll_out = 1):
     
     X, Y = [], []
     
-    # --- Determine which file indices to load ---
-    # Training files: first ceil(n_train / data_per_file) files (starting from index 0)
-    # Test files: last ceil(n_test / data_per_file) files (negative indices, e.g., -1, -2, ...)
+    # Draw training trajectories from the beginning and held-out trajectories from
+    # the end of the 2,000-file corpus; the slices below select the requested counts.
     for i in list(range(math.ceil(n_train / data_per_file))) + [n_file + x for x in range(-math.ceil(n_test / data_per_file), 0)]:
         data = np.load(f"../../data/navier_stokes/navier_stokes_{i:05d}.npy")
-        # data : nt+2 by n by n array. 
-        # forcing, vorticity_0, vorticity_1, ......, vorticity_nt
+        # Raw layout: [forcing, omega_0, omega_1, ..., omega_nt, ...].
         vorticity = data[1:, ::stride, 0::stride]
         force     = data[0, ::stride, 0::stride]
         
         
-        # Create nt consecutive pairs (vorticity[t], vorticity[t+1])
+        # Store static forcing/coordinates beside omega_t for each rollout window.
         for j in range(nt - n_roll_out + 1):
-            X.append(np.stack([vorticity[j,:,:], force, x1_grid, x2_grid], axis=2))           # omega, force, x, y
-            Y.append(vorticity[j+1:j+1+n_roll_out,:,:].transpose(1, 2, 0))                    # omega'
+            X.append(np.stack([vorticity[j,:,:], force, x1_grid, x2_grid], axis=2))
+            Y.append(vorticity[j+1:j+1+n_roll_out,:,:].transpose(1, 2, 0))
          
             
     X, Y = np.array(X), np.array(Y)
@@ -97,18 +100,17 @@ def preprocess_data(n_train, n_test, nt, downsample, n_roll_out = 1):
 
 def load_test_data(test_data_indices, nt, downsample):
     """
-    Preprocess Navier‑Stokes simulation data for testing.
+    Load complete trajectories for autoregressive evaluation.
 
-    The raw data are stored in multiple .npy files, each containing a sequence of
-    vorticity fields over time plus a constant forcing field. This function loads
-    the required files, optionally downsamples the spatial grid, for roll-out test
+    The returned channel order is ``[omega_t, forcing, x, y]`` at every saved time.
 
     Parameters:
         test_data_indices (list of int): testing file indices.
-        downsample (int): Downsampling factor (2**downsample). Default 1 => no downsampling.
+        nt (int): Number of transitions to load after the initial condition.
+        downsample (int): Exponent of the spatial stride, i.e. stride=2**downsample.
         
     Returns:
-        X (torch.Tensor): Test tensors [n_test_file, nt+1, nx, ny, in_dim].
+        X (np.ndarray): Test data with layout [file, time, nx, ny, channel].
         dx1, dx2 (float): Grid spacings in each direction (both equal).
     """
     # --- Constants derived from the raw data format ---
@@ -127,9 +129,8 @@ def load_test_data(test_data_indices, nt, downsample):
     dx1 = dx2 = L/n
     
     
-    # --- Determine which file indices to load ---
-    # Training files: first ceil(n_train / data_per_file) files (starting from index 0)
-    # Test files: last ceil(n_test / data_per_file) files (negative indices, e.g., -1, -2, ...)
+    # Repeat the static forcing and coordinates along time so every state is a
+    # self-contained four-channel model input.
     in_dim = 4
     x_test = []
     
@@ -137,8 +138,7 @@ def load_test_data(test_data_indices, nt, downsample):
         X = np.zeros((nt+1, n, n, in_dim))
         data_file_name = f"../../data/navier_stokes/navier_stokes_{i:05d}.npy"
         data = np.load(data_file_name)
-        # data : nt+2 by n by n array. 
-        # forcing, vorticity_0, vorticity_1, ......, vorticity_nt
+        # Raw layout: [forcing, omega_0, omega_1, ..., omega_nt, ...].
         vorticity = data[1:, ::stride, 0::stride]
         force     = data[0, ::stride, 0::stride]
         
@@ -159,9 +159,8 @@ def load_test_data(test_data_indices, nt, downsample):
 if __name__ == "__main__":
 
 
-    ###################################
-    # load parameters
-    ###################################
+    # These CLI switches define the model capacity, spatial resolution, and
+    # multi-step training horizon used in the checkpoint name below.
 
     parser = argparse.ArgumentParser(description='Train model with different configurations and options.')
 
@@ -182,6 +181,7 @@ if __name__ == "__main__":
     n_roll_out = args.n_roll_out
 
     save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+    # Two-step rollout is the historical default and therefore has no suffix.
     if n_roll_out != 2:
         save_model_name += f"_nrollout{n_roll_out}"
 
@@ -224,6 +224,3 @@ if __name__ == "__main__":
     
 
     
-
-
-
