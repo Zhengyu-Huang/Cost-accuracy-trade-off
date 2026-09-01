@@ -1,3 +1,10 @@
+"""Data-error losses and optional physics-residual diagnostics.
+
+``LpLoss`` provides the relative errors used by the benchmark drivers. The
+remaining helpers form finite-difference, spectral, or automatic-
+differentiation residuals for Darcy, Burgers, and Navier--Stokes equations.
+"""
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -58,7 +65,7 @@ class LpLoss(object):
         """
         super(LpLoss, self).__init__()
 
-        #Dimension and Lp-norm type are postive
+        # The spatial dimension and Lp exponent must be positive.
         assert d > 0 and p > 0
 
         self.d = d
@@ -179,6 +186,12 @@ class LpLoss(object):
     
     
 def FDM_Darcy(u, a, D=1):
+    """Approximate ``-div(a grad(u))`` at interior grid points.
+
+    ``u`` and ``a`` represent batches of scalar fields on the same square,
+    uniform grid. Centered differences are applied twice, so the returned
+    residual excludes two grid layers on every side.
+    """
     batchsize = u.size(0)
     size = u.size(1)
     u = u.reshape(batchsize, size, size)
@@ -212,6 +225,7 @@ def FDM_Darcy(u, a, D=1):
 
 
 def darcy_loss(u, a):
+    """Return the relative residual error for ``-div(a grad(u)) = 1``."""
     batchsize = u.size(0)
     size = u.size(1)
     u = u.reshape(batchsize, size, size)
@@ -241,6 +255,12 @@ def darcy_loss(u, a):
 
 
 def FDM_NS_vorticity(w, v=1/40, t_interval=1.0):
+    """Evaluate the 2D vorticity-equation residual on a periodic grid.
+
+    Spatial derivatives and the velocity recovered from vorticity are
+    computed spectrally; a centered difference is used in time. Consequently,
+    the first and last stored time slices are omitted from the result.
+    """
     batchsize = w.size(0)
     nx = w.size(1)
     ny = w.size(2)
@@ -249,7 +269,7 @@ def FDM_NS_vorticity(w, v=1/40, t_interval=1.0):
     w = w.reshape(batchsize, nx, ny, nt)
 
     w_h = torch.fft.fft2(w, dim=[1, 2])
-    # Wavenumbers in y-direction
+    # Fourier wavenumber grids for both periodic spatial directions.
     k_max = nx//2
     N = nx
     k_x = torch.cat((torch.arange(start=0, end=k_max, step=1, device=device),
@@ -281,6 +301,7 @@ def FDM_NS_vorticity(w, v=1/40, t_interval=1.0):
 
 
 def Autograd_Burgers(u, grid, v=1/100):
+    """Form the viscous Burgers residual using automatic differentiation."""
     from torch.autograd import grad
     gridt, gridx = grid
 
@@ -292,6 +313,7 @@ def Autograd_Burgers(u, grid, v=1/100):
 
 
 def AD_loss(u, u0, grid, index_ic=None, p=None, q=None):
+    """Return initial-condition and PDE-residual MSEs for Burgers' equation."""
     batchsize = u.size(0)
     # lploss = LpLoss(size_average=True)
 
@@ -328,6 +350,7 @@ def AD_loss(u, u0, grid, index_ic=None, p=None, q=None):
 
 
 def FDM_Burgers(u, D=1, v=1/100):
+    """Evaluate the viscous Burgers residual with spectral space derivatives."""
     batchsize = u.size(0)
     nt = u.size(1)
     nx = u.size(2)
@@ -337,7 +360,7 @@ def FDM_Burgers(u, D=1, v=1/100):
     dx = D / (nx)
 
     u_h = torch.fft.fft(u, dim=2)
-    # Wavenumbers in y-direction
+    # Periodic spatial wavenumbers; time is differentiated separately below.
     k_max = nx//2
     k_x = torch.cat((torch.arange(start=0, end=k_max, step=1, device=u.device),
                      torch.arange(start=-k_max, end=0, step=1, device=u.device)), 0).reshape(1,1,nx)
@@ -351,6 +374,7 @@ def FDM_Burgers(u, D=1, v=1/100):
 
 
 def PINO_loss(u, u0):
+    """Return initial-condition and residual losses for 1D Burgers data."""
     batchsize = u.size(0)
     nt = u.size(1)
     nx = u.size(2)
@@ -374,6 +398,7 @@ def PINO_loss(u, u0):
 
 
 def PINO_loss3d(u, u0, forcing, v=1/40, t_interval=1.0):
+    """Return initial-condition and residual losses for 2D vorticity data."""
     batchsize = u.size(0)
     nx = u.size(1)
     ny = u.size(2)
@@ -416,6 +441,7 @@ def PDELoss(model, x, t, nu):
 
 
 def get_forcing(S):
+    """Construct the fixed periodic forcing on an ``S``-by-``S`` grid."""
     x1 = torch.tensor(np.linspace(0, 2*np.pi, S, endpoint=False), dtype=torch.float).reshape(S, 1).repeat(1, S)
     x2 = torch.tensor(np.linspace(0, 2*np.pi, S, endpoint=False), dtype=torch.float).reshape(1, S).repeat(S, 1)
     return -4 * (torch.cos(4*(x2))).reshape(1,S,S,1)

@@ -1,3 +1,12 @@
+"""Benchmark trained FNO checkpoints on Darcy-flow test samples.
+
+Run from ``scripts/darcy_fno``. The default driver requires CUDA, the final
+100 raw files in ``../../data/darcy``, and all nine matching checkpoints plus
+normalizer states in ``models/``. It writes
+``data/cost_accuracy_fno_solver_data.npz`` after CPU and GPU evaluation.
+Example: ``python3 fno_darcy_solver.py``.
+"""
+
 import sys
 import os
 import math 
@@ -10,11 +19,9 @@ import torch.optim as optim
 from timeit import default_timer
 from fno_train import load_test_data
 
-# 获取当前文件所在的目录
+# Add the project root so the shared model and utility modules can be imported.
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# 向上两级找到项目根目录
 project_root = os.path.dirname(os.path.dirname(current_dir))
-# 添加到路径
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 from nn.mno import setup_model, mno_floating_point_cost 
@@ -27,10 +34,12 @@ np.set_printoptions(precision=10, suppress=True)
 
 
 def cost_accuracy_fno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial):
+    """Benchmark FNO configurations on held-out Darcy-flow samples.
+
+    The returned cost tensor is indexed by spectral cutoff, layer count,
+    feature width, trial, and ``[FLOP estimate, device timer]``. Accuracy has
+    the same configuration/trial axes and stores relative L2 error.
     """
-    Neural operator solver error .
-    """
-    # load reference solution
     
     nx = ny = 512
     nx, ny = nx//(2**downsample), ny//(2**downsample)
@@ -66,14 +75,15 @@ def cost_accuracy_fno_solver_helper(device, downsample, k_max_values, n_layer_va
      
                 
                 for i in range(n_trial):
-                    # Prepare the data
+                    # Preserve the batch axis: (1, nx + 1, ny + 1, 3).
                     xi = torch.from_numpy(x_test[[i],...].astype(np.float32)).to(device) 
-                    # Warm up
+                    # Run one untimed inference to initialize kernels and caches.
                     x = x_normalizer.encode(xi)
                     y_pred =  model( x ) 
                     if normalization_y:
                         y_pred = y_normalizer.decode(y_pred)
                         
+                    # Average repeated inference calls to reduce timer noise.
                     start_time = time.perf_counter()
                     for j in range(n_repeat):
                         x = x_normalizer.encode(xi)
@@ -89,6 +99,7 @@ def cost_accuracy_fno_solver_helper(device, downsample, k_max_values, n_layer_va
                     
                     y_pred, y_ref = y_pred.detach().cpu().numpy(), y_ref
                     rel_error = np.linalg.norm(y_pred - y_ref)/np.linalg.norm(y_ref)
+                    # FLOPs are estimated analytically from the model/grid dimensions.
                     cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, grad_layer=False)
                     cost[k_max_index, n_layer_index, df_index, i, 1] = solve_time
                     accuracy[k_max_index, n_layer_index, df_index, i] = rel_error
@@ -101,11 +112,16 @@ def cost_accuracy_fno_solver_helper(device, downsample, k_max_values, n_layer_va
 
 
 def cost_accuracy_fno_solver(downsample_values, k_max_values, n_layer_values, df_values, n_train, n_trial = 10):
+    """Benchmark each grid/model configuration on both CUDA and CPU.
+
+    The final cost axis is ``[FLOP estimate, CPU seconds, GPU seconds]``.
+    """
     
     cost = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3)) 
     accuracy = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial))
     
     for downsample_index, downsample in enumerate(downsample_values):
+        # Evaluate identical samples/configurations on each device for timing.
         for device in [torch.device('cuda') , torch.device('cpu')]:
             cost_ds, accuracy_ds  = cost_accuracy_fno_solver_helper(device, downsample, k_max_values = k_max_values, n_layer_values = n_layer_values, df_values = df_values, n_train = n_train, n_trial = n_trial)
             cost[downsample_index, :, :, :, :, 0] = cost_ds[...,0]
@@ -125,10 +141,7 @@ def cost_accuracy_fno_solver(downsample_values, k_max_values, n_layer_values, df
 
 
 def fno_solver(test_index, downsample):
-    """
-    Neural operator solver .
-    """
-    # load reference solution
+    """Run the fixed trained FNO configuration and save one prediction."""
     
     nx = ny = 512
     nx, ny = nx//(2**downsample), ny//(2**downsample)
@@ -162,7 +175,7 @@ def fno_solver(test_index, downsample):
      
                 
     x = torch.from_numpy(x_test[[0],...].astype(np.float32)).to(device)
-    # Warm up
+    # Run one inference, then remove the batch and output-channel axes.
     x = x_normalizer.encode(x)
     y_pred =  model( x ) 
     y_pred = y_normalizer.decode(y_pred)
@@ -176,9 +189,6 @@ def fno_solver(test_index, downsample):
 
 if __name__ == "__main__":
     
-    ###################################
-    # load parameters
-    ###################################
-
+    # Generate the full cost/accuracy archive used by the plotting script.
     cost, accuracy  = cost_accuracy_fno_solver(downsample_values = [2, 3, 4], k_max_values = [16], n_layer_values = [4, 5, 6], df_values = [64], n_train=4000, n_trial=100)
     # fno_solver(test_index=9999, downsample=2)

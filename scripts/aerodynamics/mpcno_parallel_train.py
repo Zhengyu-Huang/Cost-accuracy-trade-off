@@ -1,3 +1,18 @@
+"""Launch distributed M-PCNO training for one surface resolution.
+
+Run from ``scripts/aerodynamics`` with at least two CUDA devices::
+
+    torchrun --standalone --nnodes=1 --nproc_per_node=2 \
+      mpcno_parallel_train.py --grad True --geo True --geointegral True \
+      --n_layer 4 --k_max 16 --batch_size 4 --epochs 200 \
+      --n_train 4000 --n_test 512 --dx_scale 10.0 --n_point 10000
+
+The selected resolution must contain
+``../../data/aerodynamics/PressureVTK_Processed_<N>/mpcno_data_n_train4000_n_test512.npz``.
+The active ``__main__`` always calls ``main()``, which initializes DDP and saves
+periodic/final model and output-normalizer checkpoints under ``models/``.
+"""
+
 import os
 import torch
 import sys
@@ -24,7 +39,7 @@ torch.set_printoptions(precision=16)
 
 
 def setup_ddp(rank, local_rank, world_size):
-    """Initialize distributed environment."""
+    """Bind one process to one GPU and initialize the NCCL process group."""
     torch.cuda.set_device(local_rank)
     
 
@@ -35,8 +50,8 @@ def setup_ddp(rank, local_rank, world_size):
         world_size=world_size
     )
     
-    # 设置随机种子以确保可重复性
-    torch.manual_seed(0 + rank)  # 每个进程有不同的偏移
+    # Offset seeds by global rank so stochastic work is not duplicated.
+    torch.manual_seed(0 + rank)
     np.random.seed(0 + rank)
     
     if rank == 0:
@@ -45,13 +60,13 @@ def setup_ddp(rank, local_rank, world_size):
 
 
 def cleanup_ddp():
-    """清理分布式训练环境"""
+    """Release the distributed process group after training."""
     dist.destroy_process_group()
 
 
 
 def train_ddp(rank, local_rank, world_size, args):
-    # Initialize distributed environment
+    """Load one resolution, construct the model, and run DDP training."""
     setup_ddp(rank, local_rank, world_size)
     
     # Parse configuration from parameters
@@ -74,32 +89,29 @@ def train_ddp(rank, local_rank, world_size, args):
     if rank == 0:
         print("Loading and preprocessing data...")
         
-    ###################################
-    # load all data (CPU only)
-    ###################################
+    # Every rank loads the full CPU archive; MPCNO_train_parallel constructs
+    # DistributedSamplers that partition training and test samples by rank.
     save_model_name = f"models/MPCNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_npoint{n_point}"
     
     data_path = "../../data/aerodynamics/PressureVTK_Processed_"+str(n_point)
-    # load data n_train + n_test
-    # Note: All ranks need to load data, but we'll use DistributedSampler to distribute the data
-    
     data = np.load(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz")
     
     
     nnodes, node_mask, nodes = data["nnodes"], data["node_mask"], data["nodes"]
     
     
-    #！！！！！
-    # bounding box [5.2715902328491211, 2.3783199787139893, 1.7617900371551514]
+    # Fourier-box side lengths enclose the approximate vehicle bounding box
     Ls = [10.0, 4.0, 3.2]
-    # Ls = [7.0, 3.0, 2.0]
     
     node_weights = data["node_measures"]
-    node_weight_scale = compute_node_weight_scale(2, Ls)   #np.amax(np.sum(node_weights, axis=1))
+    # Normalize surface quadrature weights by the two-dimensional measure scale
+    # associated with the enclosing Fourier box.
+    node_weight_scale = compute_node_weight_scale(2, Ls)
     node_weights = node_weights / node_weight_scale  
     
     node_weights = node_weights[...,0]
     
+    # Match the gradient-branch scale used by the trained configuration.
     directed_edges, edge_gradient_weights = data["directed_edges"], data["edge_gradient_weights"] / dx_scale
     features = data["features"]
 
@@ -153,7 +165,8 @@ def train_ddp(rank, local_rank, world_size, args):
                 act = act,
                 ).to(local_rank)
 
-    # Wrap the model with DDP
+    # DDP synchronizes parameter gradients; data partitioning occurs in the
+    # training routine through one DistributedSampler per split.
     ddp_model = DDP(model, device_ids=[local_rank])
 
     epochs = args.epochs
@@ -165,6 +178,7 @@ def train_ddp(rank, local_rank, world_size, args):
     if rank == 0:
         print(f'batch_size = {batch_size}')
 
+    # Coordinates and normals remain in physical units; only Cp is standardized.
     normalization_x = False
     normalization_y = True
     normalization_dim_x = []
@@ -212,7 +226,7 @@ def main():
     args = parser.parse_args()
     
 
-    # 获取当前进程的rank和world_size（torchrun自动设置）
+    # torchrun supplies global rank, node-local rank, and world size.
     rank = int(os.environ.get('RANK', 0))
     local_rank = int(os.environ.get('LOCAL_RANK', 0))
     world_size = int(os.environ.get('WORLD_SIZE', 1))

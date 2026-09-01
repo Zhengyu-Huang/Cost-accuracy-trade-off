@@ -1,3 +1,15 @@
+"""Create the seeded training/test subset used by the M-PCNO experiments.
+
+Run from ``scripts/aerodynamics`` after preprocessing one resolution::
+
+    python mpcno_reduce_data.py --n_train 4000 --n_test 512 --n_point 10000
+
+The active ``__main__`` reads ``mpcno_data.npz`` and its aligned names array
+from ``../../data/aerodynamics/PressureVTK_Processed_<N>``, applies the fixed
+seed-42 selection, and writes the corresponding ``n_train4000_n_test512`` data
+and names archives. Repeat for 20000 and 40000 when those models are required.
+"""
+
 import os
 import argparse
 import numpy as np
@@ -26,23 +38,19 @@ if __name__ == "__main__":
     mesh_type = 'vertex_centered'
 
 
-    ###################################
-    # load data
-    ###################################
+    # Each point resolution is reduced independently from its full archive.
     data_path = "../../data/aerodynamics/PressureVTK_Processed_" + str(n_point)
  
-    # load data n_train + n_test
+    # The names array is kept aligned with every tensor through the same indices.
     equal_weights = False
     data = np.load(data_path+"/mpcno_data.npz")
     names_array = np.load(data_path+"/mpcno_data_names_list.npy", allow_pickle=True)
     
-    # random shuffle, and keep only n_train + n_test data
+    # Reorder the retained samples as one training block followed by one test block.
     data, names_list = random_shuffle(data, names_array, n_train, n_test, seed=42)
     
     print("max nnodes = ", np.max(data["nnodes"]))    
     np.savez(data_path+"/mpcno_data_n_train"+str(n_train)+"_n_test"+str(n_test)+".npz", **data)
 
     np.save(os.path.join(data_path, "mpcno_data_names_list"+"_n_train"+str(n_train)+"_n_test"+str(n_test)+".npy"), names_list)
-
-
 

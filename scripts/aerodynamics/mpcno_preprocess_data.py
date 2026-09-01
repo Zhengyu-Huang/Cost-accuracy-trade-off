@@ -1,3 +1,16 @@
+"""Convert decimated vehicle surfaces into padded M-PCNO mesh tensors.
+
+Run from ``scripts/aerodynamics`` for one surface resolution::
+
+    python mpcno_preprocess_data.py --n_each 400 --n_point 10000
+
+Input VTK files are read from the 15 category subdirectories of
+``../../data/aerodynamics/PressureVTK_Processed_<N>``. The active ``__main__``
+loads up to ``n_each`` files per category and writes ``mpcno_data.npz`` plus
+``mpcno_data_names_list.npy`` in that resolution directory. Repeat the command
+with 20000 and 40000 to build the other paper resolutions.
+"""
+
 import os
 import torch
 import argparse
@@ -30,20 +43,16 @@ print(f"Using device: {device}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train model with different configurations and options.')
-    # Preprocess data n_each from each subcategories
+    # Limit the number of surfaces loaded from each DrivAerNet++ category.
     parser.add_argument('--n_each', type=int, default=100)
     parser.add_argument('--n_point', type=int, default=10000)
     
-    # Specifies how the computational mesh is represented. 
-    # “cell_centered” stores features at cell centers (control-volume based), 
-    # while “vertex_centered” stores features at mesh vertices (node-based).
+    # Surface coordinates, normals, and Cp are all represented at vertices.
     args = parser.parse_args()
     mesh_type = 'vertex_centered'
     n_each  = args.n_each 
     n_point = args.n_point
-    ###################################
-    # load data
-    ###################################
+    # Load variable-size triangular surfaces before padding them as one archive.
     data_path = "../../data/aerodynamics/PressureVTK_Processed_" + str(n_point)
     
                                                                                                 
@@ -55,6 +64,8 @@ if __name__ == "__main__":
     ndata = len(nodes_list)
     
     print("Preprocessing data")
+    # ``preprocess_data_mesh`` pads nodes and directed edges to cohort maxima;
+    # masks and zero measures prevent padded entries from contributing later.
     nnodes, node_mask, nodes, node_measures_raw, features, directed_edges, edge_gradient_weights = preprocess_data_mesh(nodes_list, elems_list, features_list, mesh_type = mesh_type, adjacent_type="edge")
     node_measures = np.nan_to_num(node_measures_raw, nan=0.0)
     np.savez_compressed(data_path+"/mpcno_data.npz", \

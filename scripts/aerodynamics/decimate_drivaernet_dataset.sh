@@ -1,4 +1,10 @@
 #!/bin/bash
+# Purpose: decimate all 15 DrivAerNet++ categories through a Slurm array.
+# Run from scripts/aerodynamics:  sbatch decimate_drivaernet_dataset.sh
+# Requires: edit BASE_PATH for the local raw PressureVTK tree and activate the
+# ``meshlab`` environment. The active configuration targets 10,000 points.
+# Outputs: source/intermediate PLY files, decimated VTK files under
+# PressureVTK_Processed_10000/<category>, and logs/slurm_<array-id>.out.
 #SBATCH --qos=low
 #SBATCH -J decimate
 #SBATCH --nodes=1
@@ -11,7 +17,7 @@ module load conda
 source activate meshlab
 
 INDEX=$SLURM_ARRAY_TASK_ID
-# ========== params ==========
+# Active dataset and resolution parameters.
 
 N_POINT=10000
 BASE_PATH="/lustre/home/2306192137/Cost-accuracy-trade-off/data/aerodynamics/"

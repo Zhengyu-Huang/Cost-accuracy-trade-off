@@ -1,3 +1,11 @@
+"""Geometry preprocessing for unstructured neural-operator inputs.
+
+These routines convert mesh connectivity into nodal or elemental measures,
+directed adjacency, least-squares gradient weights, quadrature weights, padded
+batch tensors, and surface normals. Connectivity rows store the element
+dimension first and use negative indices as padding unless stated otherwise.
+"""
+
 import numpy as np
 from math import prod
 from tqdm import tqdm
@@ -5,6 +13,7 @@ from typing import List, Set, Union
 from scipy.spatial import cKDTree
 
 def compute_triangle_area_(points:np.ndarray) -> float:
+    """Return the area of a triangle embedded in two or three dimensions."""
     ab = points[1, :] - points[0,:]
     ac = points[2, :] - points[0,:]
     cross_product = np.cross(ab, ac)
@@ -12,6 +21,7 @@ def compute_triangle_area_(points:np.ndarray) -> float:
 
 
 def compute_tetrahedron_volume_(points:np.ndarray) -> float:
+    """Return the unsigned volume of a tetrahedron."""
     ab = points[1, :] - points[0,:]
     ac = points[2, :] - points[0,:]
     ad = points[3, :] - points[0,:]
@@ -148,7 +158,7 @@ def compute_node_measures(nodes:np.ndarray, elems:np.ndarray) -> np.ndarray:
         ne = len(e)
         # compute measure based on elem_dim
         s = compute_measure_per_elem_(nodes[e, :], elem_dim)
-        # assign it to cooresponding measures
+        # Accumulate the measure in the column matching the element dimension.
         measures[e, elem_dim-1] = np.nan_to_num(measures[e, elem_dim-1], nan=0.0)
         measures[e, elem_dim-1] += s/ne 
         measure_types[elem_dim - 1] = True
@@ -336,7 +346,7 @@ def compute_elem_adjacent_list(elems:np.ndarray, adjacent_type:str = "node") -> 
             elif adjacent_type == "face":
                 # when e1 is 1d element, face means share 1 node
                 # when e1 is 2d element, face means share an edge (2 nodes)
-                # when e1 is 3d element, face means share an face (at least 3 nodes)
+                # For a 3D element, face adjacency requires at least three shared nodes.
                 if common < 2 and e1_dim == 2:
                     e1_neigh.remove(ie2)
                 elif common < 3 and e1_dim == 3:
@@ -365,20 +375,20 @@ def compute_edge_gradient_weights_helper(nodes:np.ndarray, node_dims:np.ndarray,
     And its associated weight pinvdx[:,1], pinvdx[:,2], ..., pinvdx[:,j]
     Then the gradient can be efficiently computed with scatter_add
     
-    When these points are on a degerated plane or surface, the gradient towards the 
+    When these points lie on a lower-dimensional plane or surface, the gradient in the
     normal direction is 0.
 
 
         Parameters:  
             nodes : float[nnodes, ndims]
-            node_dims : int[nnodes], the intrisic dimensionality of the node
+            node_dims : int[nnodes], the intrinsic dimensionality of each node
                         if the node is on a volume, it is 3
                         if the node is on a surface, it is 2
                         if the node is on a line, it is 1
                         if it is on different type of elements, take the maximum
 
                                 
-            adj_list : list of set, saving neighbors for each nodes
+            adj_list : list of sets containing the neighbors of each node
             rcond : float, truncate the singular values in numpy.linalg.pinv at rcond*largest_singular_value
             
 
@@ -415,7 +425,7 @@ def compute_edge_gradient_weights(nodes:np.ndarray, elems:np.ndarray, mesh_type:
     When mesh_type = "vertex_centered", nodes are element vertices; 
     When mesh_type = "cell_centered", nodes are element centers.
 
-    The function first construct the node_dims to store the (maximum) dimensionality at that node, 
+    The function first constructs ``node_dims`` to store the maximum dimensionality at each node,
     and the adjacent list for the nodes, then call compute_edge_gradient_weights_helper to compute 
     weights, as following
 
@@ -429,7 +439,7 @@ def compute_edge_gradient_weights(nodes:np.ndarray, elems:np.ndarray, mesh_type:
        :                                :
     xj - x                        f(xj) - f(x)
     
-    in matrix form   dx  nable f(x)   = df.
+    In matrix form, ``dx * nabla f(x) = df``.
     
     The pseudo-inverse of dx is pinvdx.
     Then gradient f(x) for any function f, is pinvdx * df
@@ -437,7 +447,7 @@ def compute_edge_gradient_weights(nodes:np.ndarray, elems:np.ndarray, mesh_type:
     And its associated weight pinvdx[:,1], pinvdx[:,2], ..., pinvdx[:,j]
     Then the gradient can be efficiently computed with scatter_add
     
-    When these points are on a degerated plane or surface, the gradient towards the 
+    When these points lie on a lower-dimensional plane or surface, the gradient in the
     normal direction is 0.
 
     
@@ -1002,7 +1012,7 @@ def compute_outward_normals(vertices_list:List[np.ndarray], elems_list:List[np.n
 
 
         Return :
-            elems_outward_normals_list : list of flot[nelems, ndims]
+            elems_outward_normals_list : list of float[nelems, ndims]
     '''
     ndims = vertices_list[0].shape[1]
     elems_outward_normals_list = []

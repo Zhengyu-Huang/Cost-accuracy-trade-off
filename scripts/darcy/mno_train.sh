@@ -1,4 +1,11 @@
 #!/bin/bash
+# Purpose: train the fixed N=8000, k_max=4, layers=4, width=16 MNO at stride 4.
+# Run from: scripts/darcy (all dataset, checkpoint, and log paths are relative).
+# Requires: Slurm, the GPU80G partition, one CUDA GPU, the conda module, Darcy
+#           files 00000--07999 and 09000--09999, and models/logs directories.
+# Outputs: the matching model/normalizer files under models/, the named log
+#          under logs/, and the Slurm stream MNO_train.out.
+# Example: sbatch mno_train.sh
 #SBATCH -o MNO_train.out
 #SBATCH --qos=low
 #SBATCH -J MNO_train
@@ -23,4 +30,3 @@ python mno_train.py --n_train $N_TRAIN \
     --df $DF \
     --downsample $DOWNSAMPLE \
     > logs/N${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}_df${DF}_downsample${DOWNSAMPLE}.log
-

@@ -1,3 +1,12 @@
+"""Provide Firedrake Darcy solvers, data generation, and FEM benchmarks.
+
+Run from ``scripts/darcy`` with Firedrake/PETSc available. The active driver
+requires ``../../data/darcy/darcy_data_09999.npy`` and writes the representative
+solution to ``data/traditional_solver_data.npz``; the other workflows are
+exposed as importable functions and are not selected by the default entry point.
+Example: ``python3 multigrid_darcy_solver.py``.
+"""
+
 import os, sys
 from pathlib import Path
 import time
@@ -8,7 +17,7 @@ from matplotlib.ticker import ScalarFormatter
 import gc
 
 
-# Add the parent directory (project/utility) to Python's search path
+# Add the project root so shared utility modules can be imported.
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 if project_root not in sys.path:
@@ -17,17 +26,14 @@ from utility.gaussian_random_fields import gaussian_random_field_2d
 
 def nodal_array_to_function(arr, function_space):
     """
-    Convert a nodal array (shape (nx+1, ny+1)) to a Firedrake CG1 Function.
+    Convert a structured nodal array to a Firedrake CG1 Function.
 
     Parameters
     ----------
     arr : np.ndarray
-        2D array of shape (nx+1, ny+1), where arr[i, j] corresponds to the grid point
-        (x = i/nx, y = j/ny). The mesh must have vertices exactly at these points.
-    mesh : firedrake.Mesh
-        Structured rectangular mesh (e.g., UnitSquareMesh(nx, ny)).
-    function_space : firedrake.FunctionSpace, optional
-        If provided, must be a CG1 space on the same mesh. Otherwise created automatically.
+        Array indexed as ``arr[x_index, y_index]`` on the unit square.
+    function_space : firedrake.FunctionSpace
+        CG1 space whose mesh vertices coincide with the array nodes.
 
     Returns
     -------
@@ -39,7 +45,7 @@ def nodal_array_to_function(arr, function_space):
     nx = nx_plus1 - 1
     ny = ny_plus1 - 1
 
-    # Create or validate the function space
+    # The caller supplies the CG1 space on the finest hierarchy mesh.
     V = function_space
 
     # Create the Function
@@ -57,7 +63,7 @@ def nodal_array_to_function(arr, function_space):
     # Look up values from the input array
     vals = arr[i, j]
 
-    # Assign values (parallel safe)
+    # Assign the reordered nodal values through Firedrake's vector interface.
     with f.dat.vec_wo as v:
         v.setValues(range(len(vals)), vals)
 
@@ -111,7 +117,7 @@ def solve_darcy_equation(nx, ny, hierarchy_level, kappa, f, solver_parameters = 
         Number of refinement levels. The coarse mesh size is nx // 2**hierarchy_level,
         ny // 2**hierarchy_level.
     kappa : numpy.ndarray 
-        Permeability coefficient. A numpy array of shape (ny+1, nx+1) is provided,
+        Permeability coefficient. A numpy array of shape (nx+1, ny+1) is provided,
         it is converted to a CG1 Function on the finest mesh using nodal_array_to_function.
     f : numpy.ndarray 
         Source term. Handled similarly to kappa.
@@ -157,17 +163,16 @@ def solve_darcy_equation(nx, ny, hierarchy_level, kappa, f, solver_parameters = 
     a = inner(kappa_func * grad(u), grad(v)) * dx
     L = f_func * v * dx
 
-    # Dirichlet BC from exact solution
+    # Homogeneous Dirichlet boundary condition.
     bc = DirichletBC(V, 0.0, "on_boundary")
 
     # solution
     uh = Function(V, name="uh")
 
     # ------------------------------------------------------------------
-    # 5. Solve with multigrid preconditioner
+    # 4. Solve with the requested multigrid preconditioner
     # ------------------------------------------------------------------
-    # Start timing
-    # TODO warm up the solver, update cache
+    # Exclude one warm-up solve, then reset the iterate before every timed solve.
     solve(a == L, uh, bcs=bc, solver_parameters=solver_parameters)
     n_repeat = 10
     start_time = time.perf_counter()
@@ -184,6 +189,7 @@ def solve_darcy_equation(nx, ny, hierarchy_level, kappa, f, solver_parameters = 
 
 
 def test_darcy_equation():
+    """Check the multigrid solve against a manufactured smooth solution."""
     solver_parameters_cg = {
         "ksp_type": "cg",               # Conjugate Gradient (optimal for SPD)
         "pc_type": "mg",                # geometric multigrid
@@ -302,6 +308,7 @@ def generate_data():
     for i in range(ndata):
         kappa_data = gaussian_random_field_2d(1, [ngrid, ngrid], [L, L], sigma=1.0, tau = 3.0, alpha = 2.0, bc_name = 'neumann', seed = i)
         kappa_data = kappa_data[0,...]
+        # Threshold the Gaussian field into the two permeability phases 1 and 10.
         positive_indices = kappa_data >= 0
         kappa_data[positive_indices] = 10
         kappa_data[~positive_indices] = 1
@@ -315,6 +322,7 @@ def generate_data():
 
 
 def visualize_data():
+    """Plot permeability, forcing, and solution from one generated sample."""
         
     i = 1
     data = np.load(f"../../data/darcy/darcy_data_{i:05d}.npy")
@@ -340,13 +348,15 @@ def visualize_data():
     
     
 def cost_accuracy_traditional_solver():
+    """Benchmark FEM work, runtime, and relative error across six grids.
+
+    Cost has shape ``(resolution, trial, 2)`` with channels
+    ``[analytical FLOP estimate, CPU seconds]``. Accuracy stores relative L2
+    error against the downsampled 512-by-512-cell reference solution.
     """
-    Traditional solver error .
-    """
-    # load reference solution
     
-    m_iteration = 15  # number of multigrid v cycle iterations
-    nu_iteration = 2  # number of smoothing per multigrid v cycle iteration
+    m_iteration = 15  # modeled number of multigrid V-cycles
+    nu_iteration = 2  # modeled smoothing steps per V-cycle
     
     solver_parameters_mg = {
         "ksp_type": "richardson",
@@ -369,14 +379,14 @@ def cost_accuracy_traditional_solver():
     n_downsample, n_trial = 6, 10
     cost, accuracy = np.zeros((n_downsample, n_trial, 2)), np.zeros((n_downsample, n_trial))
     sol = []
+    # Increasing downsample coarsens the nodal grid by powers of two.
     for downsample in range(6):
         
         for i in range(n_trial):
-            # TODO there are in total 10000 data
+            # Use the final n_trial samples, in reverse file order.
             data = np.load(f"../../data/darcy/darcy_data_{(9999-i):05d}.npy")
             print(data.shape)
-            # data : n by n by 2 array. 
-            # kappa, u
+            # The final axis stores permeability and the reference solution.
             stride = 2**downsample
             data = data[0::stride, 0::stride, :]
             kappa_data, u_ref  = data[:,:,0], data[:,:,1]
@@ -390,11 +400,12 @@ def cost_accuracy_traditional_solver():
             
             
             rel_error = np.linalg.norm(u_data - u_ref)/np.linalg.norm(u_ref)
+            # Work model: setup plus m V-cycles, including nu smoothing steps.
             cost[downsample, i, :] =  (271 + m_iteration*(88/3 * nu_iteration + 116/3))*n*n, cost_cpu_time
             accuracy[downsample, i] = rel_error
             print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time)
 
-            if i == 0: # save the last data data
+            if i == 0: # retain one representative field triplet per resolution
                 sol.append(np.stack([kappa_data, u_ref, u_data], axis=2))
     
     np.savez_compressed('data/cost_accuracy_traditional_solver_data.npz', cost=cost, accuracy=accuracy, sol=np.array(sol, dtype=object))
@@ -406,10 +417,7 @@ def cost_accuracy_traditional_solver():
 
 
 def traditional_solver(test_index, downsample):
-    """
-    Traditional solver .
-    """
-    # load reference solution
+    """Solve one downsampled field with the fixed FEM configuration and save it."""
     
     m_iteration = 15  # number of multigrid v cycle iterations
     nu_iteration = 2  # number of smoothing per multigrid v cycle iteration
@@ -434,8 +442,7 @@ def traditional_solver(test_index, downsample):
     L = 1.0
     data = np.load(f"../../data/darcy/darcy_data_{test_index:05d}.npy")
             
-    # data : n by n by 2 array. 
-    # kappa, u
+    # The final axis stores permeability and the reference solution.
     stride = 2**downsample
     data = data[0::stride, 0::stride, :]
     kappa_data, u_ref  = data[:,:,0], data[:,:,1]
@@ -453,13 +460,40 @@ def traditional_solver(test_index, downsample):
 
 
 
-# Example usage
 if __name__ == "__main__":
-    # test_darcy_equation()
+    
+    
+    #############################################
+    # Test Firedrake solver with exact solution
+    #############################################
+    
+    test_darcy_equation()
+        
+        
+    #############################################
+    # Generate 10000 data
+    #############################################
+    
     # generate_data()
+    
+    
+    
+    #############################################
+    # Visualize the generated data (default data id 1)
+    #############################################
+    
     # visualize_data()
 
 
-    cost_accuracy_traditional_solver()
-    # traditional_solver(test_index=9999, downsample=3)
+    #############################################
+    # Evaluate cost and accuracy for Firedrake solver with different mesh sizes
+    #############################################
     
+    # cost_accuracy_traditional_solver()
+    
+    
+    #############################################
+    # Load generated data, compute the solution at a coarser mesh 
+    #############################################
+    
+    # traditional_solver(test_index=9999, downsample=3)

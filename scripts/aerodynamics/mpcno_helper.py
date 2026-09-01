@@ -1,3 +1,11 @@
+"""Shared data-loading and tensor-assembly helpers for the M-PCNO workflow.
+
+This module is imported by preprocessing, training, evaluation, and plotting
+scripts and has no ``__main__`` entry point. It expects decimated triangular
+VTK surfaces with nodal ``p`` under the 15 category directories listed below.
+It does not write files directly; callers own archive and checkpoint output.
+"""
+
 import os
 import numpy as np
 import torch
@@ -24,8 +32,11 @@ DrivAerNet_datasets = [
 
 
 def _load_data(vtk_file, nodes_list, elems_list, elem_features_list):
-    """
-    使用 vtk.vtkPolyDataReader 读取 .vtk 文件，并保存为 .ply 格式, 只保存了网格信息
+    """Append one triangular VTK surface and its nodal features to lists.
+
+    Each feature row contains the three point-normal components followed by
+    the pressure coefficient. Connectivity is stored in the mesh preprocessor's
+    ``[element_dimension, vertex_ids...]`` convention.
     """
     print(f"正在读取 VTK 文件: {vtk_file}")
     reader = vtk.vtkPolyDataReader()
@@ -39,29 +50,27 @@ def _load_data(vtk_file, nodes_list, elems_list, elem_features_list):
     num_points = points.GetNumberOfPoints()
     nodes = np.array([points.GetPoint(i) for i in range(num_points)])
 
-    # elements（假设全是三角形）
-    polys = polydata.GetPolys()   # vtkCellArray
-    # 转换为 numpy 数组
+    # Legacy VTK triangles are flattened as [3, i, j, k, 3, ...].
+    polys = polydata.GetPolys()
     cell_array = vtk_to_numpy(polys.GetData())
-    # 解析：数组结构为 [3, id0, id1, id2, 3, id0, id1, id2, ...]
-    elems = cell_array.reshape(-1, 4)   
-    elems[:,0] = 2  # elem dim is 2
+    elems = cell_array.reshape(-1, 4)
+    elems[:,0] = 2  # Replace the vertex count with the surface dimension.
 
 
     # pressure
     scalars = polydata.GetPointData().GetArray("p")
     pressure_feature = np.array([scalars.GetValue(i) for i in range(num_points)])
-    # TODO u_inf is 30, compute pressure coefficient
+    # The exported ``p`` is treated as kinematic gauge pressure, so rho=1 and
+    # p_inf=0 are implicit in Cp = p/(0.5*U_inf**2).
     u_inf = 30
     cp_feature = pressure_feature / (0.5*u_inf**2)
 
-    # normals
+    # Compute smooth point normals without splitting vertices at sharp edges.
     normals = vtk.vtkPolyDataNormals()
     normals.SetInputData(reader.GetOutput())
-    # 关键设置：确保计算点法线，这通常是默认开启的
     normals.SetComputePointNormals(True)
-    normals.SetComputeCellNormals(False)  # 本例只计算点法线，你也可以根据需要开启
-    normals.SetSplitting(False)          # 关键：禁止分裂
+    normals.SetComputeCellNormals(False)
+    normals.SetSplitting(False)
     normals.Update()
     point_normals = vtk_to_numpy(normals.GetOutput().GetPointData().GetNormals())
     
@@ -72,7 +81,7 @@ def _load_data(vtk_file, nodes_list, elems_list, elem_features_list):
     elem_features_list.append(elem_features)
 
 
-    # 可以这样检查
+    # Optional round-trip check for geometry, pressure, and normals.
     # cells = []
     # cells.append(("triangle", elems[:,1:]))
     # vertex_data = {"pressure": elem_features[:,-1], "normals": elem_features[:,0:3]}
@@ -87,6 +96,12 @@ def _load_data(vtk_file, nodes_list, elems_list, elem_features_list):
 
 
 def load_data(data_path, DrivAerNet_datasets, n_each):
+    """Load up to ``n_each`` surfaces from every configured category.
+
+    Files are consumed in the order returned by ``os.walk``. Consequently,
+    the selected geometries depend on filesystem ordering unless callers sort
+    the file lists before regenerating the archives.
+    """
     names_list, nodes_list, elems_list, elem_features_list = [], [], [], []
 
     DrivAerNet_dir = data_path
@@ -109,7 +124,13 @@ def load_data(data_path, DrivAerNet_datasets, n_each):
 
 
 def random_shuffle(data, names_array, n_train, n_test, seed=42):
-    np.random.seed(seed)  # 可选的：为了可重复性设置随机种子
+    """Select and reorder a seeded training/test subset.
+
+    The first ``n_train`` shuffled indices form the training block and the last
+    ``n_test`` form the test block. Samples between those two blocks are
+    discarded when the source archive is larger than the requested subset.
+    """
+    np.random.seed(seed)
     
     ndata = data["nodes"].shape[0]
     assert(ndata >= n_train + n_test)
@@ -117,7 +138,7 @@ def random_shuffle(data, names_array, n_train, n_test, seed=42):
     random_indices = np.arange(ndata)
     np.random.shuffle(random_indices)
     
-    # 取前n_train 和后n_test 个分别作为训练和测试集
+    # Keep training samples first because downstream code slices by position.
     train_indices = random_indices[:n_train]
     test_indices = random_indices[-n_test:]
     indices = np.concatenate([train_indices, test_indices])
@@ -126,7 +147,7 @@ def random_shuffle(data, names_array, n_train, n_test, seed=42):
     data = {key: value[indices] for key, value in data.items()}
     names_array = names_array[indices]
     
-    # 输出数据统计情况
+    # Report category counts after reordering as a split sanity check.
     all_datasets = DrivAerNet_datasets
     train_data_stats = {subdir: 0 for subdir in all_datasets}
     test_data_stats = {subdir: 0 for subdir in all_datasets}
@@ -155,13 +176,18 @@ def random_shuffle(data, names_array, n_train, n_test, seed=42):
     return data, names_array
 
 
-# prepare data
 def gen_data_tensors(data_indices, nodes, features, node_mask, node_weights, directed_edges, edge_gradient_weights, f_in_dim, f_out_dim):
+    """Assemble model inputs, targets, and geometry tensors for selected cases.
+
+    For this benchmark ``features`` stores point normals followed by ``Cp``.
+    Inputs concatenate the requested physical features, normals, and Cartesian
+    coordinates; ``aux`` preserves the order expected by ``MPCNO.forward``.
+    """
     nodes_input = nodes.clone()
     ndim = nodes.shape[-1]
-    # input x （normal, coordinate）
+    # Input channels are outward normals followed by Cartesian coordinates.
     x = torch.cat((features[data_indices][...,:f_in_dim+ndim], nodes_input[data_indices, ...]), -1)
-    # output y
+    # The final feature channel is the scalar Cp target.
     y = features[data_indices][...,-f_out_dim:]
     # outward normal
     nx = features[data_indices][...,f_in_dim:f_in_dim+ndim]

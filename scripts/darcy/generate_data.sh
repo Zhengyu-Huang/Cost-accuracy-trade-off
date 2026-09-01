@@ -1,4 +1,13 @@
 #!/bin/bash
+# Purpose: run the current multigrid_darcy_solver.py entry point. Despite this
+#          filename, the active entry point performs one representative solve;
+#          it does not call generate_data().
+# Run from: scripts/darcy (all data and output paths are relative).
+# Requires: Slurm on the recorded CPU module stack, the Firedrake virtualenv
+#           below, raw sample ../../data/darcy/darcy_data_09999.npy, and data/.
+# Outputs: data/traditional_solver_data.npz, multigrid_darcy_solver.log, and
+#          the Slurm stream cpu.out.
+# Example: sbatch generate_data.sh
 #SBATCH -o cpu.out
 #SBATCH --qos=low
 #SBATCH -J cpu

@@ -1,3 +1,13 @@
+"""Multiscale point-cloud neural operator components.
+
+The implementation combines global Fourier quadrature with optional local
+least-squares gradient and geometry-aware branches. Public inputs use the
+layout ``[batch, nodes, channels]``; operator layers use
+``[batch, channels, nodes]`` internally. Variable-size point clouds are padded,
+with masks and zero quadrature weights preventing padded nodes from
+contributing to the integral operators.
+"""
+
 import math
 import numpy as np
 import torch
@@ -58,7 +68,11 @@ def compute_Fourier_modes_helper(ndims, nks, Ls):
         Return :
             k_pairs : float[nmodes, ndims]
     '''
-    assert(len(nks) == len(Ls) == ndims)    
+    assert(len(nks) == len(Ls) == ndims)
+
+    # For real-valued fields, the coefficients at k and -k are conjugates.
+    # Retain one representative of each pair and handle the zero mode
+    # separately in ``compute_Fourier_bases``.
     if ndims == 1:
         nk, Lx = nks[0], Ls[0]
         k_pairs    = np.zeros((nk, ndims))
@@ -148,6 +162,7 @@ def compute_Fourier_bases(nodes, modes):
     bases_s = torch.sin(temp) 
     batch_size, nnodes, _ = temp.shape
     bases_0 = torch.ones(batch_size, nnodes, 1, dtype=temp.dtype, device=temp.device)
+    # The explicit constant column carries the zero-frequency component.
     bases = torch.cat((bases_c, bases_s, bases_0), dim=-1)
     return bases
 
@@ -230,6 +245,8 @@ class SpectralConv(nn.Module):
         # ------------------------------------------------------------
         # Fused forward DFT
         # ------------------------------------------------------------
+        # ``wbases`` already contains the geometry-dependent quadrature
+        # weights, so this matrix product approximates the forward integral.
         x_hat = torch.bmm(x, wbases)  # (batch_size, in_channels, nbases)
 
         x_c_hat =  x_hat[:, :, :nmodes] 
@@ -259,6 +276,8 @@ class SpectralConv(nn.Module):
             dim=-1,
         )  # (batch_size, out_channels, nbases)
 
+        # The inverse map evaluates the mixed Fourier coefficients at the
+        # original point-cloud locations; no quadrature weights enter here.
         out = torch.bmm(f_hat, bases.transpose(1, 2))
 
         return out
@@ -276,7 +295,7 @@ def compute_gradient(f, directed_edges, edge_gradient_weights):
        :                                :
     xj - x                        f(xj) - f(x)
     
-    in matrix form   dx  nable f(x)   = df.
+    In matrix form, ``dx * nabla f(x) = df``.
     
     The pseudo-inverse of dx is pinvdx.
     Then gradient f(x) for any function f, is pinvdx * df
@@ -452,7 +471,7 @@ class MPCNO(nn.Module):
 
         """
         The overall network. 
-        1. Lift the input to the desire channel dimension by self.fc0 .
+        1. Lift the input to the desired channel dimension using ``self.fc0``.
         2. len(layers)-1 layers of the point cloud neural layers u' = (W + K + D)(u).
            linear functions  W: parameterized by self.ws; 
            integral operator K: parameterized by self.sp_convs
@@ -612,7 +631,7 @@ class MPCNO(nn.Module):
     def forward(self, x, aux):
         """
         Forward evaluation. 
-        1. Lift the input to the desire channel dimension by self.fc0 .
+        1. Lift the input to the desired channel dimension using ``self.fc0``.
         2. len(layers)-1 layers of the point cloud neural layers u' = u + act((W + K + D + G)(u)).
            linear functions  W: parameterized by self.ws; 
            integral operator K: parameterized by self.sp_convs
@@ -622,20 +641,20 @@ class MPCNO(nn.Module):
         3. Project from the channel space to the output space by self.fc1 and self.fc2 .
             
             Parameters: 
-                x : Tensor float[batch_size, max_nnomdes, in_dim] 
+                x : Tensor float[batch_size, max_nnodes, in_dim]
                     Input data
                 aux : list of Tensor, containing
-                    node_mask : Tensor int[batch_size, max_nnomdes, 1]  
+                    node_mask : Tensor int[batch_size, max_nnodes, 1]
                                 1: node; otherwise 0
 
-                    nodes : Tensor float[batch_size, max_nnomdes, ndim]  
+                    nodes : Tensor float[batch_size, max_nnodes, ndim]
                             nodal coordinate; padding with 0
 
-                    node_weights  : Tensor float[batch_size, max_nnomdes]  
+                    node_weights  : Tensor float[batch_size, max_nnodes]
                                     rho(x)dx used for integrations; padding with 0
 
                     directed_edges : Tensor int[batch_size, max_nedges, 2]  
-                                     direted edge pairs; padding with 0  
+                                     directed edge pairs; padded with 0
                                      gradient f(x) = sum_i pinvdx[:,i] * [f(xi) - f(x)] 
 
                     edge_gradient_weights      : Tensor float[batch_size, max_nedges, ndim] 
@@ -646,7 +665,7 @@ class MPCNO(nn.Module):
 
             
             Returns:
-                G(x) : Tensor float[batch_size, max_nnomdes, out_dim] 
+                G(x) : Tensor float[batch_size, max_nnodes, out_dim]
                        Output data
 
         """
@@ -658,7 +677,9 @@ class MPCNO(nn.Module):
         bases  = compute_Fourier_bases(nodes, self.modes)
         # node_weights: float[batch_size, nnodes] 
         # wbases: float[batch_size, nnodes, nmodes, nbases]
-        # set nodes with zero measure to 0
+        # Weight every basis evaluation by its nodal quadrature measure.
+        # Multiplying by the nodal measures turns the basis matrix into a
+        # quadrature rule. Padded nodes have zero weight by construction.
         wbases = torch.einsum("bxk,bx->bxk", bases, node_weights)
 
         geo = torch.cat([outward_normals,compute_gradient(outward_normals, directed_edges, edge_gradient_weights)], dim=1) if self.layer_selection['geo'] else None

@@ -50,7 +50,7 @@ multigrid against the modified Fourier neural operator.
 #### Representative solution
 
 <p align="center">
-  <img src="assets/darcy_flow_map.png" width="920" alt="Darcy permeability, reference pressure, finite-element solution, and modified neural-operator prediction">
+  <img src="assets/darcy_flow_map.webp" width="920" alt="Darcy permeability, reference pressure, finite-element solution, and modified neural-operator prediction">
 </p>
 
 <p align="center"><em>Representative Darcy test sample. From left to right: the binary permeability field, the reference pressure, the finite-element solution on a 64 × 64 grid, and the neural operator prediction.</em></p>
@@ -58,7 +58,7 @@ multigrid against the modified Fourier neural operator.
 #### Cost–accuracy curve
 
 <p align="center">
-  <img src="assets/darcy_flow_cost_accuracy.png" width="920" alt="Darcy-flow floating-point work and wall-clock runtime versus relative L2 error">
+  <img src="assets/darcy_flow_cost_accuracy.webp" width="920" alt="Darcy-flow floating-point work and wall-clock runtime versus relative L2 error">
 </p>
 
 <p align="center"><em>Main Darcy comparison. Left: estimated floating-point work versus relative <i>L</i><sup>2</sup> error. Right: reported CPU and GPU wall-clock runtime versus relative <i>L</i><sup>2</sup> error. Markers show test means, and error bars denote one standard deviation.</em></p>
@@ -85,7 +85,7 @@ many CFL-limited Runge–Kutta steps with one learned update.
 #### Representative rollout
 
 <p align="center">
-  <img src="assets/navier_stokes_flow_map.png" width="760" alt="Navier-Stokes reference trajectory, Fourier pseudospectral solution, and recurrent neural-operator prediction">
+  <img src="assets/navier_stokes_flow_map.webp" width="760" alt="Navier-Stokes reference trajectory, Fourier pseudospectral solution, and recurrent neural-operator prediction">
 </p>
 
 <p align="center"><em>Representative vorticity trajectory. Columns show <i>t</i> = 0, 10, 20, and 30; rows show the 256 × 256 reference, the Fourier pseudospectral solution on a 64 × 64 grid, and the recurrent neural operator prediction.</em></p>
@@ -93,13 +93,13 @@ many CFL-limited Runge–Kutta steps with one learned update.
 #### Cost–accuracy curves
 
 <p align="center">
-  <img src="assets/navier_stokes_cost_accuracy_1.png" width="920" alt="Navier-Stokes cost-accuracy comparison at prediction horizon T equals 1">
+  <img src="assets/navier_stokes_cost_accuracy_1.webp" width="920" alt="Navier-Stokes cost-accuracy comparison at prediction horizon T equals 1">
 </p>
 
 <p align="center"><em>Short-horizon cost–accuracy comparison at <i>T</i> = 1.</em></p>
 
 <p align="center">
-  <img src="assets/navier_stokes_cost_accuracy_30.png" width="920" alt="Navier-Stokes cost-accuracy comparison at prediction horizon T equals 30">
+  <img src="assets/navier_stokes_cost_accuracy_30.webp" width="920" alt="Navier-Stokes cost-accuracy comparison at prediction horizon T equals 30">
 </p>
 
 <p align="center"><em>Long-horizon cost–accuracy comparison at <i>T</i> = 30. In both figures, the left panel reports estimated floating-point work and the right panel reports CPU and GPU wall-clock runtime.</em></p>
@@ -126,7 +126,7 @@ computes a full volumetric steady RANS solution.
 #### Representative surface prediction
 
 <p align="center">
-  <img src="assets/vehicle_surface_pressure.png" width="920" alt="Reference, OpenFOAM, and neural-operator surface pressure coefficient on a representative vehicle">
+  <img src="assets/vehicle_surface_pressure.webp" width="920" alt="Reference, OpenFOAM, and neural-operator surface pressure coefficient on a representative vehicle">
 </p>
 
 <p align="center"><em>Surface pressure coefficient <i>C</i><sub>p</sub> for one representative vehicle. From left to right: the geometry-specific large-mesh OpenFOAM reference obtained using 7000 SIMPLE iterations; OpenFOAM predictions on the medium and small meshes; and the neural operator prediction on approximately 20,000 surface points. </em></p>
@@ -134,7 +134,7 @@ computes a full volumetric steady RANS solution.
 #### Cost–accuracy curve
 
 <p align="center">
-  <img src="assets/aerodynamics_cost_accuracy.png" width="920" alt="Vehicle-aerodynamics floating-point work and wall-clock runtime versus relative L1 error">
+  <img src="assets/aerodynamics_cost_accuracy.webp" width="920" alt="Vehicle-aerodynamics floating-point work and wall-clock runtime versus relative L1 error">
 </p>
 
 <p align="center"><em>Vehicle-aerodynamics comparison. Left: estimated floating-point work versus relative <i>L</i><sup>1</sup> error in <i>C</i><sub>p</sub>. Right: reported OpenFOAM CPU runtime and neural operator CPU/GPU inference runtime. </em></p>
@@ -201,14 +201,6 @@ The supplied Slurm files are environment-specific templates rather than portable
 ### Data and evaluation set
 
 Raw datasets, trained checkpoints, and intermediate result archives are not stored in this repository. The Darcy and Navier–Stokes datasets can be generated with the supplied classical solvers; the vehicle workflow uses surface data derived from [DrivAerNet++](https://github.com/Mohamedelrefaie/DrivAerNet), which must be obtained separately under the dataset's terms.
-
-The current drivers evaluate the classical and neural methods on nonidentical sets drawn from the same benchmark distributions. Smaller evaluation sets are used for the classical methods because these simulations are substantially more expensive and exhibit less sample-to-sample variability in the present experiments:
-
-
-- **Darcy flow:** the finite-element sweep uses the final 10 samples, whereas the neural operator sweeps use the final 100 samples.
-- **Navier–Stokes flow:** the spectral sweep uses the first 10 trajectories, whereas the neural-operator sweep uses the final 100 trajectories.
-- **Vehicle aerodynamics:** the neural operator uses 512 test geometries, whereas the OpenFOAM averages use six selected geometries covering the three body styles because geometry-specific reference simulations are expensive.
-
 
 ## Citation
 
