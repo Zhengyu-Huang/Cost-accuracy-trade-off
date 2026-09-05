@@ -12,6 +12,7 @@
 # ========== params ==========
 
 N_TRAIN=10000
+N_ROLL_OUT=2
 
 
 K_MAX_VALUES=(16)
@@ -55,8 +56,8 @@ python mno_train.py \
     --n_layer $N_LAYER \
     --df $DF \
     --downsample $DOWNSAMPLE \
-    > logs/N${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}_df${DF}_downsample${DOWNSAMPLE}.log
-
+    --n_roll_out $N_ROLL_OUT \
+    > logs/N${N_TRAIN}_k${K_MAX}_nlayer${N_LAYER}_df${DF}_downsample${DOWNSAMPLE}_nrollout${N_ROLL_OUT}.log
 
 
 

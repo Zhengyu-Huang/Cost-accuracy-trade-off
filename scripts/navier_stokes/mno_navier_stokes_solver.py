@@ -106,7 +106,7 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
 
 
 
-def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
+def mno_solve_visualize(n_layer, df, downsample, k_max, n_train, n_roll_out=2):
     """
     Plot rollout errors and snapshots for the last five reference trajectories.
     """
@@ -118,7 +118,7 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
     dim, in_dim, out_dim = 2, 4, 1
     
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+    checkpoint_path = ("models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}")
           
           
     # x_test is [batch_size , nt+1 , nx , ny , 4]
@@ -182,7 +182,7 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
     plt.savefig("figs/MNO_prediction.png")
 
 
-def mno_solver(test_index, downsample):
+def mno_solver(test_index, downsample, n_roll_out=2):
     """
     Roll out one saved trajectory and write its vorticity prediction.
     """
@@ -199,7 +199,7 @@ def mno_solver(test_index, downsample):
     df = 64
     
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+    checkpoint_path = (f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}")
           
           
     # x_test is [batch_size , nt+1 , nx , ny , 4]
@@ -233,7 +233,7 @@ def mno_solver(test_index, downsample):
 
 
 
-def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial):
+def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial, n_roll_out=2,):
     """
     Benchmark model configurations on one device and spatial resolution.
 
@@ -263,8 +263,10 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
         for n_layer_index, n_layer in enumerate(n_layer_values):
             for df_index, df in enumerate(df_values):
                 
-                checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
-                # checkpoint_path = f"models/MNO_model_N4000_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}.pth"
+                checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}"
+                
+                # To evaluate another training-set size, change n_train above;
+                # the checkpoint still ends with _nrollout{n_roll_out}.
     
                 model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0, incremental = True, checkpoint_path=checkpoint_path+".pth")
                 model = model.to(device)
@@ -299,7 +301,10 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
 
 
 
-def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df_values, n_train, n_trial = 10):
+def cost_accuracy_mno_solver(
+    downsample_values, k_max_values, n_layer_values, df_values,
+    n_train, n_trial=10, n_roll_out=2,
+):
     """Benchmark all configurations and combine CPU/GPU results.
 
     The saved cost axis is ``[single-step FLOPs, CPU runtime, GPU runtime]`` and
@@ -311,7 +316,11 @@ def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df
     
     for downsample_index, downsample in enumerate(downsample_values):
         for device in [torch.device('cuda') , torch.device('cpu')]:
-            cost_ds, accuracy_ds = cost_accuracy_mno_solver_helper(device, downsample, k_max_values = k_max_values, n_layer_values = n_layer_values, df_values = df_values, n_train = n_train, n_trial = n_trial)
+            cost_ds, accuracy_ds = cost_accuracy_mno_solver_helper(
+                device, downsample, k_max_values=k_max_values,
+                n_layer_values=n_layer_values, df_values=df_values,
+                n_train=n_train, n_trial=n_trial, n_roll_out=n_roll_out,
+            )
             cost[downsample_index, :, :, :, :, 0] = cost_ds[...,0]
             if device.type == 'cpu':
                 cost[downsample_index, :, :, :,:, 1] = cost_ds[...,1]
@@ -376,13 +385,17 @@ if __name__ == "__main__":
     # generate cost accuracy plot data
     #########################################################################
     
-    cost, accuracy = cost_accuracy_mno_solver(downsample_values = [1,2,3], k_max_values = [16], n_layer_values = [4,5,6], df_values = [64], n_train=10000,  n_trial=100)
+    cost, accuracy = cost_accuracy_mno_solver(
+        downsample_values=[1, 2, 3], k_max_values=[16],
+        n_layer_values=[4, 5, 6], df_values=[64], n_train=10000,
+        n_trial=100, n_roll_out=2,
+    )
     
     #########################################################################
     # generate representative plot data
     #########################################################################
     
-    # mno_solver(test_index=1999, downsample=1)
+    # mno_solver(test_index=1999, downsample=1, n_roll_out=2)
     #########################################################################
     # generate data for the rollout plot with different s
     #########################################################################
