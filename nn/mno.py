@@ -1052,18 +1052,17 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
             optimizer.zero_grad()
             
             x_pred = x.clone()
-            out = []
-
+            loss = 0.0
             for i in range(n_step):
-                y_pred = model(x = x_normalizer(x_pred) if normalization_x else x_pred) 
+                y_pred = model(x=x_normalizer(x_pred) if normalization_x else x_pred)
                 if normalization_y:
                     y_pred = y_normalizer.decode(y_pred)
-                out.append(y_pred)
+                y_target = y[..., i * out_dim:(i + 1) * out_dim]
+                loss = loss + myloss(
+                    y_pred.reshape(batch_size_, -1),
+                    y_target.reshape(batch_size_, -1),
+                ) / n_step
                 x_pred = torch.cat([y_pred, x[..., out_dim:]], dim=-1) if in_dim > out_dim else y_pred
-            
-            out = torch.cat(out, dim=-1)
-            
-            loss = myloss(out.view(batch_size_,-1), y.view(batch_size_,-1))
             loss.backward()
 
             optimizer.step()
@@ -1080,18 +1079,20 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
                 batch_size_ = x.shape[0]
                 
                 x_pred = x.clone()
-                out = []
-
                 for i in range(n_step):
                     y_pred = model(x = x_normalizer(x_pred) if normalization_x else x_pred) 
                     if normalization_y:
                         y_pred = y_normalizer.decode(y_pred)
-                    out.append(y_pred)
+                    y_target = y[..., i * out_dim:(i + 1) * out_dim]
+                    test_rel_lp += myloss(
+                        y_pred.reshape(batch_size_, -1),
+                        y_target.reshape(batch_size_, -1),
+                    ).item() / n_step
+                    test_lp += myloss.abs(
+                        y_pred.reshape(batch_size_, -1),
+                        y_target.reshape(batch_size_, -1),
+                    ).item() / n_step
                     x_pred = torch.cat([y_pred, x[..., out_dim:]], dim=-1) if in_dim > out_dim else y_pred
-                out = torch.cat(out, dim=-1)
-                
-                test_rel_lp += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-                test_lp += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
 
 
 

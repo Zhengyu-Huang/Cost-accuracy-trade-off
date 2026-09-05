@@ -86,13 +86,16 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
         y_pred[:, 0, ...] = x[... , :out_dim].clone()
         
         # Time model rollout only, excluding device transfer and the final CPU copy.
-        # CUDA kernels are not explicitly synchronized inside this timed region.
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         start_time = time.perf_counter()
         for i in range(nt):
             x[..., :out_dim] = y_pred[:, i ,...]
             y_pred[:, i+1 ,...] =  model( x = (x_normalizer.encode(x) if normalization_x else x) ) 
             if normalization_y:
                 y_pred[:, i+1, ...] = y_normalizer.decode(y_pred[:, i+1, ...])
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         end_time = time.perf_counter()        
         
         y_pred = y_pred.detach().cpu().numpy()

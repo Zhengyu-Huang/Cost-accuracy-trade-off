@@ -307,7 +307,8 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, save_model_name, n_trai
         # warm-up
         out = model(x, (node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo)) #.reshape(batch_size_,  -1)
 
-
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         start_time = time.perf_counter()
         for j in range(n_repeat):
             out = model(x, (node_mask, nodes, node_weights, directed_edges, edge_gradient_weights, geo)) #.reshape(batch_size_,  -1)
@@ -316,7 +317,8 @@ def cost_accuracy_mpcno_solver_helper(device, data_path, save_model_name, n_trai
                 out = y_normalizer.decode(out)
                 # y = y_normalizer.decode(y)
             out=out*node_mask #mask the padded value with 0,(1 for node, 0 for padding)
-            
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         end_time = time.perf_counter()
         solve_time = (end_time - start_time)/n_repeat
         

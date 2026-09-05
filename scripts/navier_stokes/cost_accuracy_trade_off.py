@@ -190,15 +190,20 @@ def nrollouts_plot():
     
     
     
-def cost_accuracy_plot():
-    # use the first nt steps to compute error
-    nt_error, nt = 1, 50
+def cost_accuracy_plot(nt_error=1, nt=50):
+    """Plot cost--accuracy data through prediction horizon ``nt_error``.
+
+    Accuracy is averaged over predicted states at times 1 through
+    ``nt_error``; the exactly prescribed initial state at time 0 is excluded.
+    """
+    if not 1 <= nt_error <= nt:
+        raise ValueError(f"nt_error must satisfy 1 <= nt_error <= {nt}")
     
     cost_accuracy_traditional_solver_data = np.load('data/cost_accuracy_traditional_solver_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
     # np.array of size (n_downsample, n_trial, 2)
     cost_traditional_solver = cost_accuracy_traditional_solver_data['cost'] * nt_error / nt
     # np.array of size (n_downsample, n_trial, 2, nt+1) -> (n_downsample, n_trial, 2)
-    accuracy_traditional_solver = np.mean(cost_accuracy_traditional_solver_data['accuracy'][...,0:nt_error+1], axis=3)
+    accuracy_traditional_solver = np.mean(cost_accuracy_traditional_solver_data['accuracy'][...,1:nt_error+1], axis=3)
     
     cost_accuracy_mno_solver_data = np.load('data/cost_accuracy_mno_solver_data.npz')
     # np.array of size (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3)
@@ -215,7 +220,7 @@ def cost_accuracy_plot():
     cost_mno_solver = cost_mno_solver.reshape((-1, cost_mno_solver.shape[-2], cost_mno_solver.shape[-1]))
     
     # np.array of size (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2, nt+1) -> (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2)
-    accuracy_mno_solver = np.mean(cost_accuracy_mno_solver_data['accuracy'][...,0:nt_error+1], axis=6)
+    accuracy_mno_solver = np.mean(cost_accuracy_mno_solver_data['accuracy'][...,1:nt_error+1], axis=6)
 
 
 
@@ -331,5 +336,6 @@ def cost_accuracy_plot():
         
 if __name__ == "__main__":
     visualize_data(visualize_prediction=True)
-    cost_accuracy_plot()
+    cost_accuracy_plot(nt_error=1)
+    cost_accuracy_plot(nt_error=30)
     nrollouts_plot()

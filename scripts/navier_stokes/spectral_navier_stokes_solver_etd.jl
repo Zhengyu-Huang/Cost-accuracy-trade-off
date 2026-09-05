@@ -400,7 +400,7 @@ function cost_accuracy_traditional_solver_helper(
         nt,
         stepper = String(stepper),
         device = device_name,
-        dt_factor = (stepper == "RK4" || stepper == "ETDRK4") ? 1.0 : 1/2.0,
+        dt_factor = (stepper == "RK4" || stepper == "ETDRK4") ? 1.0 : 0.25,
     )
 
     cost = fill(NaN, n_downsample, n_trial, 2)

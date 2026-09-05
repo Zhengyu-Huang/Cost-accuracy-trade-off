@@ -79,18 +79,20 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                     xi = torch.from_numpy(x_test[[i],...].astype(np.float32)).to(device) 
                     # Run one untimed inference to initialize kernels and caches.
                     x = x_normalizer.encode(xi)
-                    y_pred =  model( x ) 
+                    y_pred = model(x)
                     if normalization_y:
                         y_pred = y_normalizer.decode(y_pred)
-                        
-                    # Average repeated inference calls to reduce timer noise.
+
+                    if device.type == "cuda":
+                        torch.cuda.synchronize(device)
                     start_time = time.perf_counter()
                     for j in range(n_repeat):
                         x = x_normalizer.encode(xi)
-                        y_pred =  model( x ) 
+                        y_pred = model(x)
                         if normalization_y:
                             y_pred = y_normalizer.decode(y_pred)
-                    
+                    if device.type == "cuda":
+                        torch.cuda.synchronize(device)
                     end_time = time.perf_counter()
                     solve_time = (end_time - start_time)/n_repeat
     
