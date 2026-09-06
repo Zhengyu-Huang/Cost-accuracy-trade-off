@@ -1183,7 +1183,25 @@ def setup_model(in_dim, out_dim, fc_dim, k_max, n_layer,
     return model
 
 
-def mno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, grad_layer=True):
+def mno_floating_point_cost(
+    dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne,
+    grad_layer=True, pad_ratio=0.0,
+):
+    """Estimate inference FLOPs on an isotropic structured grid.
+
+    Lifting and projection use the original grid size ``ne``. When padding is
+    enabled, the operator layers use the padded grid size, matching the
+    one-sided integer padding applied in ``MNO1d`` and ``MNO2d``.
+    """
+    if pad_ratio < 0:
+        raise ValueError(f"pad_ratio must be nonnegative, got {pad_ratio}")
+
+    ne_layer = ne
+    if pad_ratio > 0:
+        n = round(ne ** (1.0 / dim))
+        n_padded = n + math.floor(pad_ratio * n)
+        ne_layer = n_padded**dim
+
     c_sigma = 1.0
     K = (2*k_max+1)**dim
     C_lift = 2*ne*in_dim*fc_dim
@@ -1192,10 +1210,10 @@ def mno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, gra
     # C_layer = 10*fc_dim*ne*np.log2(ne) + K*(8*fc_dim*fc_dim - 2*fc_dim) + ((2*dim+4)*fc_dim*fc_dim + (2*dim+4+c_sigma)*fc_dim)*ne 
 
     #             FFT                         mode mixing                     affine term    add global/local     activation    residual    
-    C_layer = 10*fc_dim*ne*np.log2(ne) + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*fc_dim*fc_dim*ne + fc_dim*ne + c_sigma*fc_dim*ne + fc_dim*ne
+    C_layer = 10*fc_dim*ne_layer*np.log2(ne_layer) + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*fc_dim*fc_dim*ne_layer + fc_dim*ne_layer + c_sigma*fc_dim*ne_layer + fc_dim*ne_layer
 
     
     if grad_layer:
-        C_layer += ((2*dim+2)*fc_dim*fc_dim + (2*dim+2)*fc_dim)*ne
+        C_layer += ((2*dim+2)*fc_dim*fc_dim + (2*dim+2)*fc_dim)*ne_layer
 
     return C_lift + C_proj + nlayer*C_layer

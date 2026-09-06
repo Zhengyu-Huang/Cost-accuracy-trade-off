@@ -57,6 +57,7 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
     
 
     ne = ngrid * ngrid
+    pad_ratio = 0.1
     
     n_repeat = 10
     for k_max_index, k_max in enumerate(k_max_values):
@@ -65,7 +66,7 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                 
                 checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
                 
-                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0.1, checkpoint_path=checkpoint_path+".pth")
+                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim = df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=pad_ratio, checkpoint_path=checkpoint_path+".pth")
                 model = model.to(device)
 
                 if normalization_x:
@@ -102,7 +103,10 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
                     y_pred, y_ref = y_pred.detach().cpu().numpy(), y_ref
                     rel_error = np.linalg.norm(y_pred - y_ref)/np.linalg.norm(y_ref)
                     # FLOPs are estimated analytically from the model/grid dimensions.
-                    cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, grad_layer=True)
+                    cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(
+                        dim, in_dim, out_dim, k_max, df, n_layer, ne,
+                        grad_layer=True, pad_ratio=pad_ratio,
+                    )
                     cost[k_max_index, n_layer_index, df_index, i, 1] = solve_time
                     accuracy[k_max_index, n_layer_index, df_index, i] = rel_error
                     
