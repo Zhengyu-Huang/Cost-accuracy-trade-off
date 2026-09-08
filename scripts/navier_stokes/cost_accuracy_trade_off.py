@@ -333,9 +333,152 @@ def cost_accuracy_plot(nt_error=1, nt=50):
     fig.suptitle(f'T={nt_error}', y=0.92) 
     fig.tight_layout()
     fig.savefig(f"figs/navier_stokes_cost_accuracy_{nt_error}.png")    
+
+
+def cost_accuracy_onestep_plot():
+    """Plot cost--accuracy data through prediction horizon ``nt_error``.
+
+    Accuracy is averaged over predicted states at times 1 through
+    ``nt_error``; the exactly prescribed initial state at time 0 is excluded.
+    """
+    nt_error=1
+
+    cost_accuracy_traditional_solver_data = np.load('data/cost_accuracy_traditional_solver_onestep_data.npz', allow_pickle=True)   # 注意 allow_pickle=True
+    # np.array of size (n_downsample, n_trial, 2)
+    cost_traditional_solver = cost_accuracy_traditional_solver_data['cost']
+    # np.array of size (n_downsample, n_trial, 2, nt+1) -> (n_downsample, n_trial, 2)
+    accuracy_traditional_solver = np.mean(cost_accuracy_traditional_solver_data['accuracy'][...,:], axis=3)
+    
+    cost_accuracy_mno_solver_data = np.load('data/cost_accuracy_mno_solver_onestep_data.npz')
+    # np.array of size (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3)
+    cost_mno_solver = cost_accuracy_mno_solver_data['cost']
+    
+
+    print("cost_mno_solver = " , cost_mno_solver[0,0,:,0,0,:])
+    print("cost_mno_solver = " , cost_mno_solver[1,0,:,0,0,:])
+    print("cost_mno_solver = " , cost_mno_solver[2,0,:,0,0,:])
+
+
+    cost_mno_solver = cost_mno_solver.reshape((-1, cost_mno_solver.shape[-2], cost_mno_solver.shape[-1]))
+    
+    # np.array of size (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2, nt+1) -> (len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2)
+    accuracy_mno_solver = np.mean(cost_accuracy_mno_solver_data['accuracy'][...,:], axis=6)
+
+
+
+    print("accuracy_mno_solver = ", accuracy_mno_solver[0,0,1,0,:,:])
+    print("accuracy_mno_solver = ", accuracy_mno_solver[1,0,1,0,0,:])
+    print("accuracy_mno_solver = ", accuracy_mno_solver[2,0,1,0,0,:])
+    
+
+    accuracy_mno_solver = accuracy_mno_solver.reshape((-1, accuracy_mno_solver.shape[-2], accuracy_mno_solver.shape[-1]))
         
+
+
+
+    fig, axs = plt.subplots(1, 2, figsize=(17, 6))
+    for ax in axs:
+        ax.grid(True, linestyle=':', linewidth=0.5, alpha=0.6)
+        ax.grid(True, which='minor', linestyle=':', linewidth=0.5, alpha=0.6)
+    
+
+    mean_cost_traditional_solver = np.mean(cost_traditional_solver, axis=1) 
+    mean_accuracy_traditional_solver = np.mean(accuracy_traditional_solver, axis=1)    
+    std_cost_traditional_solver  = np.std(cost_traditional_solver, axis=1, ddof=1)       
+    std_accuracy_traditional_solver  = np.std(accuracy_traditional_solver, axis=1, ddof=1)
+
+    mean_cost_mno_solver = np.mean(cost_mno_solver, axis=1)  
+    mean_accuracy_mno_solver = np.mean(accuracy_mno_solver, axis=1)    
+    std_cost_mno_solver  = np.std(cost_mno_solver, axis=1, ddof=1)       
+    std_accuracy_mno_solver  = np.std(accuracy_mno_solver, axis=1, ddof=1)
+
+    print("mean_cost_mno_solver: ", mean_cost_mno_solver)
+    print("mean_accuracy_mno_solver:", mean_accuracy_mno_solver)
+
+    # axs[0].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,0], 'o-')
+    axs[0].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,0], xerr=std_accuracy_traditional_solver[...,0], fmt='s', color='C0')
+    log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
+    log_cost = np.log10(mean_cost_traditional_solver[...,0])[1:]
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
+                label=f'Spectral method ($\\varepsilon^{{{slope:.2f}}}$)')
+        
+    # axs[0].loglog(mean_accuracy_mno_solver, mean_cost_mno_solver[...,0], 'o-')
+    print(mean_accuracy_mno_solver.shape, mean_cost_mno_solver.shape, std_accuracy_mno_solver.shape)
+    
+    axs[0].errorbar(mean_accuracy_mno_solver[...,0], mean_cost_mno_solver[...,0], xerr=std_accuracy_mno_solver[...,0], fmt='o', color='C1')
+    log_err = np.log10(mean_accuracy_mno_solver[...,0]) 
+    log_cost = np.log10(mean_cost_mno_solver[...,0]) 
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[0].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
+                label=f'Neural operator ($\\varepsilon^{{{slope:.2f}}}$)' if nt_error==1 else 'Neural operator')
+    
+    axs[0].set_xlabel(r"Rel. $L^2$ error")
+    axs[0].set_ylabel("Floating-point cost")
+    axs[0].legend(loc='lower left')
+    axs[0].set_ylim(bottom=1e8 if nt_error == 30 else 1e7)
+    # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
+
+    
+    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,2], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,2], fmt='s', color='C2')
+    log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
+    log_cost = np.log10(mean_cost_traditional_solver[...,2])[1:]
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C2', linewidth=2,
+                label=f'Spectral method (GPU)')
+    
+
+
+    axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,1], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,1], fmt='s', color='C0')
+    log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
+    log_cost = np.log10(mean_cost_traditional_solver[...,1])[1:]
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C0', linewidth=2,
+                label=f'Spectral method (CPU)')
+    
+
+    axs[1].errorbar(mean_accuracy_mno_solver[...,0], mean_cost_mno_solver[...,2], xerr=std_accuracy_mno_solver[...,0], yerr=std_cost_mno_solver[...,2], fmt='o', color='C1')
+    log_err = np.log10(mean_accuracy_mno_solver[...,0])
+    log_cost = np.log10(mean_cost_mno_solver[...,2])
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C1', linewidth=2,
+                label=f'Neural operator (GPU)')
+
+    axs[1].errorbar(mean_accuracy_mno_solver[...,0], mean_cost_mno_solver[...,1], xerr=std_accuracy_mno_solver[...,0], yerr=std_cost_mno_solver[...,1], fmt='o', color='C3')
+    log_err = np.log10(mean_accuracy_mno_solver[...,0])
+    log_cost = np.log10(mean_cost_mno_solver[...,1])
+    slope, intercept = np.polyfit(log_err, log_cost, 1)
+    x_fit = np.linspace(min(log_err), max(log_err), 50)
+    y_fit = slope * x_fit + intercept
+    axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
+                label=f'Neural operator (CPU)')
+    
+
+
+    
+    axs[1].set_xlabel(r"Rel. $L^2$ error")
+    axs[1].set_ylabel("Runtime (s)")
+    axs[1].legend(loc='lower left')
+    
+
+    
+    fig.suptitle(f'T={nt_error}', y=0.92) 
+    fig.tight_layout()
+    fig.savefig(f"figs/navier_stokes_cost_accuracy_{nt_error}.png")    
+
+       
 if __name__ == "__main__":
     visualize_data(visualize_prediction=True)
-    cost_accuracy_plot(nt_error=1)
+    cost_accuracy_onestep_plot()
     cost_accuracy_plot(nt_error=30)
     nrollouts_plot()

@@ -7,18 +7,34 @@ using Printf
 using LinearAlgebra
 using Base.Threads
 
+
+"""
+    update_vorticity!(prob)
+
+Transform only the requested vorticity field to physical space. In contrast,
+`TwoDNavierStokes.updatevars!` also computes both velocity components. The inverse
+FFT is part of online solution generation and is included in benchmark timings.
+"""
+function update_vorticity!(prob)
+    dealias!(prob.sol, prob.grid)
+    copyto!(prob.vars.ζh, prob.sol)
+    ldiv!(prob.vars.ζ, prob.grid.rfftplan, prob.vars.ζh)
+    return nothing
+end
+
+
 function integrate_trajectory!(prob, Tsave, nsaves; verbose = false)
     clock, vars = prob.clock, prob.vars
     dt = clock.dt
     save_every_steps = round(Int, Tsave / dt)
     nx, ny = size(vars.ζ)
-    zeta_data = Array{eltype(vars.ζ)}(undef, nsaves, nx, ny)
-    zeta_data[1, :, :] .= Array(vars.ζ)
+    zeta_data = similar(vars.ζ, nsaves, nx, ny)
+    zeta_data[1, :, :] .= vars.ζ
 
     for m in 1:(nsaves - 1)
         stepforward!(prob, save_every_steps)
-        TwoDNavierStokes.updatevars!(prob)
-        zeta_data[m + 1, :, :] .= Array(vars.ζ)
+        update_vorticity!(prob)
+        zeta_data[m + 1, :, :] .= vars.ζ
         verbose && println("saved snapshot ", m, " at t = ", clock.t)
     end
 
@@ -58,7 +74,7 @@ function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave,
     dev isa GPU && CUDA.synchronize()
     runtime = (time_ns() - start_ns) * 1e-9
 
-    return zeta_data, runtime
+    return Array(zeta_data), runtime
 end
 
 
@@ -284,7 +300,99 @@ end
 
 
 
+
+function cost_accuracy_traditional_solver_onestep(;n_downsample, n_trial)
+    """
+    Traditional solver error .
+    """
+    nt = 50
+    # load reference solution
+    # floating point cost, CPU, GPU
+    cost, accuracy = zeros(n_downsample, n_trial, 3), zeros(n_downsample, n_trial, 2, nt)
+    
+
+    
+    for device in ["gpu","cpu"]
+        cost_ds, accuracy_ds =  cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n_trial)
+        cost[:, :, 1] = cost_ds[:,:,1]
+        if device == "cpu"
+            cost[:, :, 2] = cost_ds[:,:,2]
+            accuracy[:, :, 1, :] = accuracy_ds 
+        else
+            cost[:, :, 3] = cost_ds[:,:,2]
+            accuracy[:, :, 2, :] = accuracy_ds 
+        end
+    end
+
+    save_data = Dict{String, Any}()
+    save_data["cost"] = cost
+    save_data["accuracy"] = accuracy
+
+    NPZ.npzwrite("data/cost_accuracy_traditional_solver_onestep_data.npz", save_data)
+    
+    return  cost, accuracy
+
+end
+
+function cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n_trial)
+    """
+    Traditional solver error .
+    """
+    # load reference solution
+    
+    nt = 50  # number of iterations
+    dev = device == "cpu" ? CPU() : GPU()
+    ν = 1e-4
+
+    nx = ny = 256
+    dt = 1/512.0
+
+    Tsaves = 1.0
+    L = 1.0
+    data_dir = normpath(joinpath(@__DIR__, "..", "..", "data", "navier_stokes"))
+    cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial, nt)
+    for downsample = 0:n_downsample-1 
+        stride = 2^downsample
+        for i in 1:n_trial
+            filename = @sprintf("navier_stokes_%05d.npy", 2000 - i)
+            data = NPZ.npzread(joinpath(data_dir, filename))
+            # data : nt+2 by n by n array. 
+            # F, w_0, w_1, ... , w_nt
+            
+            data = data[:, 1:stride:end, 1:stride:end]
+            F_phys, zeta_data_ref  = data[1, :,:], data[2:end,:,:]
+            F_phys_dev = device_array(dev)(F_phys)
+            F_hat = rfft(F_phys_dev)
+
+            
+
+            n, _ = size(F_phys)            # number of cells in each direction
+            ne = n * n
+            
+            for j in 1:nt
+                ζ0 = zeta_data_ref[j,:,:]
+
+                zeta_data, cost_cpu_time = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, 2, dev; verbose = false)
+            
+                # one step time 
+                cost[downsample+1, i, :] +=  [Tsaves/(dt*stride)*(100*ne*log2(ne) + 184*ne), cost_cpu_time]            
+                accuracy[downsample+1, i, j] = norm(zeta_data[2,:,:] - zeta_data_ref[j+1,:,:])/norm(zeta_data_ref[j+1,:,:]) 
+            end
+
+            cost[downsample+1, i, :] /= nt
+ 
+        end
+    end
+
+
+
+    return  cost, accuracy 
+
+end
+
+
 # taylor_green_vortex_test()
 # generate_data(nx = 256, ny = 256, ndata = 2000)
 # traditional_solver(test_index=1999, downsample=2)
-cost_accuracy_traditional_solver(n_downsample=4, n_trial=10)
+# cost_accuracy_traditional_solver(n_downsample=4, n_trial=10)
+cost_accuracy_traditional_solver_onestep(n_downsample=4, n_trial=10)
