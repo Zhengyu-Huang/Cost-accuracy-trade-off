@@ -746,7 +746,7 @@ def cost_accuracy_plot_etd(nt_error=30, nt=50):
     
     fig.suptitle(f'T={nt_error}', y=0.92) 
     fig.tight_layout()
-    fig.savefig(f"figs/navier_stokes_cost_accuracy_{nt_error}.png")    
+    fig.savefig(f"figs/supp-navier_stokes_cost_accuracy_{nt_error}.png")    
 
 
 def cost_accuracy_onestep_plot_etd():
@@ -979,7 +979,7 @@ def cost_accuracy_onestep_plot_etd():
     
     fig.suptitle(f'T={nt_error}', y=0.92) 
     fig.tight_layout()
-    fig.savefig(f"figs/navier_stokes_cost_accuracy_{nt_error}.png")    
+    fig.savefig(f"figs/supp-navier_stokes_cost_accuracy_{nt_error}.png")    
 
 
 
@@ -988,4 +988,6 @@ if __name__ == "__main__":
     visualize_data(visualize_prediction=True)
     cost_accuracy_onestep_plot()
     cost_accuracy_plot(nt_error=30)
+    cost_accuracy_onestep_plot_etd()
+    cost_accuracy_plot_etd(nt_error=30)
     nrollouts_plot()
