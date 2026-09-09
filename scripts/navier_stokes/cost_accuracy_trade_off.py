@@ -195,9 +195,9 @@ def nrollouts_plot():
 
 
 def set_accuracy_ticks(ax):
-    major_ticks = [1e-9, 1e-8, 1e-6, 1e-4, 1e-3, 1e-2, 1e-1]
+    major_ticks = [1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
     major_labels = [
-        r"$10^{-9}$", r"$10^{-8}$", r"$10^{-6}$",
+        r"$10^{-9}$", r"$10^{-8}$", r"$10^{-7}$", r"$10^{-6}$", r"$10^{-5}$",
         r"$10^{-4}$", r"$10^{-3}$", r"$10^{-2}$", r"$10^{-1}$",
     ]
 
@@ -216,7 +216,7 @@ def set_accuracy_ticks(ax):
 
     ax.grid(axis="x", which="major", linestyle=":", linewidth=0.8)
     ax.grid(axis="x", which="minor", linestyle=":", linewidth=0.45, alpha=0.6)
-    ax.set_xlim(5e-10, 2e-1)
+    ax.set_xlim(2e-10, 2e-1)
 
 def cost_accuracy_plot(nt_error=30, nt=50):
     """Plot cost--accuracy data through prediction horizon ``nt_error``.
@@ -308,7 +308,7 @@ def cost_accuracy_plot(nt_error=30, nt=50):
     axs[0].legend(loc='lower left')
     axs[0].set_ylim(bottom=1e8 if nt_error == 30 else 1e7)
 
-    set_accuracy_ticks(ax[0])
+    set_accuracy_ticks(axs[0])
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
 
     
@@ -350,7 +350,7 @@ def cost_accuracy_plot(nt_error=30, nt=50):
     y_fit = slope * x_fit + intercept
     axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
                 label=f'Neural operator (CPU)')
-    set_accuracy_ticks(ax[1])
+    set_accuracy_ticks(axs[1])
 
     
     axs[1].set_xlabel(r"Rel. $L^2$ error")
@@ -450,7 +450,7 @@ def cost_accuracy_onestep_plot():
     axs[0].set_ylabel("Floating-point cost")
     axs[0].legend(loc='lower left')
     axs[0].set_ylim(bottom=1e8 if nt_error == 30 else 1e7)
-    set_accuracy_ticks(ax[0])
+    set_accuracy_ticks(axs[0])
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
 
     
@@ -492,7 +492,7 @@ def cost_accuracy_onestep_plot():
     y_fit = slope * x_fit + intercept
     axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
                 label=f'Neural operator (CPU)')
-    set_accuracy_ticks(ax[1])
+    set_accuracy_ticks(axs[1])
 
 
     
@@ -647,7 +647,7 @@ def cost_accuracy_plot_etd(nt_error=30, nt=50):
     axs[0].legend(loc='lower left')
     axs[0].set_ylim(bottom=1e8 if nt_error == 30 else 1e7)
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
-    set_accuracy_ticks(ax[0])
+    set_accuracy_ticks(axs[0])
     
     axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,2], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,2], fmt='s', color='C2')
     log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
@@ -735,7 +735,7 @@ def cost_accuracy_plot_etd(nt_error=30, nt=50):
     axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
                 label=f'NO (CPU)')
     
-    set_accuracy_ticks(ax[1])
+    set_accuracy_ticks(axs[1])
 
     
     axs[1].set_xlabel(r"Rel. $L^2$ error")
@@ -883,7 +883,7 @@ def cost_accuracy_onestep_plot_etd():
     axs[0].legend(loc='lower left')
     axs[0].set_ylim(bottom=1e8 if nt_error == 30 else 1e7)
     # axs[1].loglog(mean_accuracy_traditional_solver, mean_cost_traditional_solver[...,1], 'o-')
-    set_accuracy_ticks(ax[0])
+    set_accuracy_ticks(axs[0])
     
     axs[1].errorbar(mean_accuracy_traditional_solver[...,0], mean_cost_traditional_solver[...,2], xerr=std_accuracy_traditional_solver[...,0], yerr=std_cost_traditional_solver[...,2], fmt='s', color='C2')
     log_err = np.log10(mean_accuracy_traditional_solver[...,0])[1:]
@@ -968,7 +968,7 @@ def cost_accuracy_onestep_plot_etd():
     y_fit = slope * x_fit + intercept
     axs[1].loglog(10**x_fit, 10**y_fit, '--', color='C3', linewidth=2,
                 label=f'NO (CPU)')
-    set_accuracy_ticks(ax[1])
+    set_accuracy_ticks(axs[1])
 
     
     axs[1].set_xlabel(r"Rel. $L^2$ error")
