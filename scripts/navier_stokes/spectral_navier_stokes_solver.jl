@@ -7,6 +7,62 @@ using Printf
 using LinearAlgebra
 using Base.Threads
 
+import FourierFlows: TimeStepper, stepforward!
+
+
+"""Local first-order exponential Euler method (not provided by FourierFlows)."""
+struct ETD1 end
+
+
+struct ETD1TimeStepper{A, C} <: AbstractTimeStepper{A}
+    N::A
+    expLdt::C
+    hphi1::C
+end
+
+
+etd1_hphi1(z, h) = iszero(z) ? h : h * expm1(z) / z
+
+
+function ETD1TimeStepper(equation, dt, dev::Device = CPU())
+    h = convert(eltype(equation.L), dt)
+    z = h .* equation.L
+
+    return ETD1TimeStepper(
+        zeros(dev, equation.T, equation.dims),
+        exp.(z),
+        etd1_hphi1.(z, h),
+    )
+end
+
+
+TimeStepper(::ETD1, equation, dt, dev::Device = CPU(); kwargs...) =
+    ETD1TimeStepper(equation, dt, dev)
+
+
+function stepforward!(sol, clock, ts::ETD1TimeStepper,
+                      equation, vars, params, grid)
+    equation.calcN!(ts.N, sol, clock.t, clock, vars, params, grid)
+    @. sol = ts.expLdt * sol + ts.hphi1 * ts.N
+    clock.t += clock.dt
+    clock.step += 1
+    return nothing
+end
+
+
+function time_step_flops(ne, stepper)
+    if stepper == "ETD1"
+        return 25 * ne * log2(ne) + 39 * ne
+    elseif stepper == "ETDRK4"
+        return 100 * ne * log2(ne) + 171 * ne
+    else
+        return 100 * ne * log2(ne) + 184 * ne
+    end
+end
+
+
+benchmark_dt_factor(stepper) = stepper == "ETD1" ? 0.25 : 1.0
+
 
 """
     update_vorticity!(prob)
@@ -43,11 +99,11 @@ end
 
 
 function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave,
-               nsaves = 101, dev = CPU(); verbose = false)
+               nsaves = 101, dev = CPU(); stepper = "RK4", verbose = false)
     nν = 1
     μ  = 0.0
     nμ = 0
-    stepper = "RK4"
+    native_stepper = stepper == "ETD1" ? ETD1() : stepper
 
     function calcF!(Fh, sol, t, clock, vars, params, grid)
         @. Fh = F_hat
@@ -61,12 +117,11 @@ function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave,
         ν=ν, nν=nν,
         μ=μ, nμ=nμ,
         dt=dt,
-        stepper=stepper,
+        stepper=native_stepper,
         calcF=calcF!,
     )
 
     TwoDNavierStokes.set_ζ!(prob, device_array(dev)(ζ0))
-    TwoDNavierStokes.updatevars!(prob)
 
     dev isa GPU && CUDA.synchronize()
     start_ns = time_ns()
@@ -78,7 +133,7 @@ function solve(nx, ny, Lx, Ly, ν, ζ0, F_hat, dt, Tsave,
 end
 
 
-function taylor_green_vortex_test()
+function taylor_green_vortex_test(; stepper = "RK4")
     # -----------------------------
     # parameters
     # -----------------------------
@@ -111,7 +166,7 @@ function taylor_green_vortex_test()
     F_hat = rfft(F_phys_dev)
 
                      
-    zeta_data, _ = solve(nx, ny, L, L, ν, ζ0, F_hat, dt, T, 2, dev; verbose = true)
+    zeta_data, _ = solve(nx, ny, L, L, ν, ζ0, F_hat, dt, T, 2, dev; stepper, verbose = true)
 
     # -----------------------------
     # errors
@@ -167,7 +222,7 @@ function generate_data(;nx = 256, ny = 256, ndata = 10)
 end
 
 
-function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
+function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial; stepper = "RK4")
     """
     Traditional solver error .
     """
@@ -178,7 +233,7 @@ function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
     ν = 1e-4
 
     nx = ny = 256
-    dt = 1/512.0
+    dt = (1/512.0) * benchmark_dt_factor(stepper)
 
     Tsaves = 1.0
     L = 1.0
@@ -186,6 +241,7 @@ function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
     cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial, nt+1)
     for downsample = 0:n_downsample-1 
         stride = 2^downsample
+        steps_per_save = round(Int, Tsaves / (dt * stride))
         for i in 1:n_trial
             filename = @sprintf("navier_stokes_%05d.npy", 2000 - i)
             data = NPZ.npzread(joinpath(data_dir, filename))
@@ -201,11 +257,13 @@ function cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
 
             n, _ = size(F_phys)            # number of cells in each direction
             ne = n * n
-
-            zeta_data, cost_cpu_time = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
+            # warmup
+            i == 1 && solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat,
+                            dt*stride, dt*stride, 2, dev; stepper)
+            zeta_data, cost_cpu_time = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; stepper, verbose = false)
             
             
-            cost[downsample+1, i, :] .=  [nt*Tsaves/(dt*stride)*(100*ne*log2(ne) + 184*ne), cost_cpu_time]            
+            cost[downsample+1, i, :] .= [nt * steps_per_save * time_step_flops(ne, stepper), cost_cpu_time]
             rel_error = [norm(zeta_data[j,:,:] - zeta_data_ref[j,:,:])/norm(zeta_data_ref[j,:,:]) for j = 1:nt+1]
             accuracy[downsample+1, i, :] = rel_error
             print("relative error is : ", rel_error, " cpu_time = ", cost_cpu_time, "\n")
@@ -223,7 +281,7 @@ end
 
 
 
-function traditional_solver(;test_index, downsample)
+function traditional_solver(;test_index, downsample, stepper = "RK4")
     """
     Traditional solver .
     """
@@ -234,7 +292,7 @@ function traditional_solver(;test_index, downsample)
     ν = 1e-4
 
     nx = ny = 256
-    dt = 1/512.0
+    dt = (1/512.0) * benchmark_dt_factor(stepper)
 
     Tsaves = 1.0
     L = 1.0
@@ -253,7 +311,7 @@ function traditional_solver(;test_index, downsample)
 
     n, _ = size(F_phys)            # number of cells in each direction
     ne = n * n
-    zeta_data, _ = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; verbose = false)
+    zeta_data, _ = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, nt+1, dev; stepper, verbose = false)
 
     NPZ.npzwrite("data/traditional_solver_data.npz", zeta_data)    
             
@@ -265,7 +323,7 @@ end
 
 
 
-function cost_accuracy_traditional_solver(;n_downsample, n_trial)
+function cost_accuracy_traditional_solver(;n_downsample, n_trial, stepper = "RK4")
     """
     Traditional solver error .
     """
@@ -277,7 +335,7 @@ function cost_accuracy_traditional_solver(;n_downsample, n_trial)
 
     
     for device in ["gpu","cpu"]
-        cost_ds, accuracy_ds =  cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial)
+        cost_ds, accuracy_ds = cost_accuracy_traditional_solver_helper(device, n_downsample, n_trial; stepper)
         cost[:, :, 1] = cost_ds[:,:,1]
         if device == "cpu"
             cost[:, :, 2] = cost_ds[:,:,2]
@@ -292,7 +350,10 @@ function cost_accuracy_traditional_solver(;n_downsample, n_trial)
     save_data["cost"] = cost
     save_data["accuracy"] = accuracy
 
-    NPZ.npzwrite("data/cost_accuracy_traditional_solver_data.npz", save_data)
+    output = stepper == "RK4" ?
+        "data/cost_accuracy_traditional_solver_data.npz" :
+        "data/cost_accuracy_traditional_solver_data_$(stepper).npz"
+    NPZ.npzwrite(output, save_data)
     
     return  cost, accuracy
 
@@ -301,7 +362,7 @@ end
 
 
 
-function cost_accuracy_traditional_solver_onestep(;n_downsample, n_trial)
+function cost_accuracy_traditional_solver_onestep(;n_downsample, n_trial, stepper = "RK4")
     """
     Traditional solver error .
     """
@@ -313,7 +374,7 @@ function cost_accuracy_traditional_solver_onestep(;n_downsample, n_trial)
 
     
     for device in ["gpu","cpu"]
-        cost_ds, accuracy_ds =  cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n_trial)
+        cost_ds, accuracy_ds = cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n_trial; stepper)
         cost[:, :, 1] = cost_ds[:,:,1]
         if device == "cpu"
             cost[:, :, 2] = cost_ds[:,:,2]
@@ -328,13 +389,16 @@ function cost_accuracy_traditional_solver_onestep(;n_downsample, n_trial)
     save_data["cost"] = cost
     save_data["accuracy"] = accuracy
 
-    NPZ.npzwrite("data/cost_accuracy_traditional_solver_onestep_data.npz", save_data)
+    output = stepper == "RK4" ?
+        "data/cost_accuracy_traditional_solver_onestep_data.npz" :
+        "data/cost_accuracy_traditional_solver_onestep_data_$(stepper).npz"
+    NPZ.npzwrite(output, save_data)
     
     return  cost, accuracy
 
 end
 
-function cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n_trial)
+function cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n_trial; stepper = "RK4")
     """
     Traditional solver error .
     """
@@ -345,7 +409,7 @@ function cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n
     ν = 1e-4
 
     nx = ny = 256
-    dt = 1/512.0
+    dt = (1/512.0) * benchmark_dt_factor(stepper)
 
     Tsaves = 1.0
     L = 1.0
@@ -353,6 +417,7 @@ function cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n
     cost, accuracy = zeros(n_downsample, n_trial, 2), zeros(n_downsample, n_trial, nt)
     for downsample = 0:n_downsample-1 
         stride = 2^downsample
+        steps_per_save = round(Int, Tsaves / (dt * stride))
         for i in 1:n_trial
             filename = @sprintf("navier_stokes_%05d.npy", 2000 - i)
             data = NPZ.npzread(joinpath(data_dir, filename))
@@ -368,14 +433,18 @@ function cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n
 
             n, _ = size(F_phys)            # number of cells in each direction
             ne = n * n
+            # warmup
+            i == 1 && solve(div(nx,stride), div(ny,stride), L, L, ν,
+                            zeta_data_ref[1,:,:], F_hat, dt*stride, dt*stride,
+                            2, dev; stepper)
             
             for j in 1:nt
                 ζ0 = zeta_data_ref[j,:,:]
 
-                zeta_data, cost_cpu_time = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, 2, dev; verbose = false)
+                zeta_data, cost_cpu_time = solve(div(nx,stride), div(ny,stride), L, L, ν, ζ0, F_hat, dt*stride, Tsaves, 2, dev; stepper, verbose = false)
             
                 # one step time 
-                cost[downsample+1, i, :] +=  [Tsaves/(dt*stride)*(100*ne*log2(ne) + 184*ne), cost_cpu_time]            
+                cost[downsample+1, i, :] += [steps_per_save * time_step_flops(ne, stepper), cost_cpu_time]
                 accuracy[downsample+1, i, j] = norm(zeta_data[2,:,:] - zeta_data_ref[j+1,:,:])/norm(zeta_data_ref[j+1,:,:]) 
             end
 
@@ -394,5 +463,7 @@ end
 # taylor_green_vortex_test()
 # generate_data(nx = 256, ny = 256, ndata = 2000)
 # traditional_solver(test_index=1999, downsample=2)
-# cost_accuracy_traditional_solver(n_downsample=4, n_trial=10)
-cost_accuracy_traditional_solver_onestep(n_downsample=4, n_trial=10)
+# Set stepper to "RK4", "ETD1", or "ETDRK4".
+stepper="RK4"
+cost_accuracy_traditional_solver(n_downsample=4, n_trial=10, stepper=stepper)
+cost_accuracy_traditional_solver_onestep(n_downsample=4, n_trial=10, stepper=stepper)
