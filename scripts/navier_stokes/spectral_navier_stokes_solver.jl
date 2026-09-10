@@ -366,7 +366,7 @@ function cost_accuracy_traditional_solver_onestep(;n_downsample, n_trial, steppe
     """
     Traditional solver error .
     """
-    nt = 50
+    nt = 30
     # load reference solution
     # floating point cost, CPU, GPU
     cost, accuracy = zeros(n_downsample, n_trial, 3), zeros(n_downsample, n_trial, 2, nt)
@@ -404,7 +404,7 @@ function cost_accuracy_traditional_solver_onestep_helper(device, n_downsample, n
     """
     # load reference solution
     
-    nt = 50  # number of iterations
+    nt = 30  # number of iterations
     dev = device == "cpu" ? CPU() : GPU()
     ν = 1e-4
 
@@ -464,6 +464,6 @@ end
 # generate_data(nx = 256, ny = 256, ndata = 2000)
 # traditional_solver(test_index=1999, downsample=2)
 # Set stepper to "RK4", "ETD1", or "ETDRK4".
-stepper="RK4"
-cost_accuracy_traditional_solver(n_downsample=4, n_trial=10, stepper=stepper)
+stepper="ETD1"
+# cost_accuracy_traditional_solver(n_downsample=4, n_trial=10, stepper=stepper)
 cost_accuracy_traditional_solver_onestep(n_downsample=4, n_trial=10, stepper=stepper)

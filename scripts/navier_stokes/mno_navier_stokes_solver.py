@@ -349,7 +349,7 @@ def cost_accuracy_mno_solver_onestep_helper(device, downsample, k_max_values, n_
     """
     # load reference solution
     
-    nt = 50
+    nt = 30
     nx = ny = 256
     nx, ny = nx//(2**downsample), ny//(2**downsample)
     ne = nx*ny
@@ -415,7 +415,7 @@ def cost_accuracy_mno_solver_onestep(
     The saved cost axis is ``[single-step FLOPs, CPU runtime, GPU runtime]`` and
     the accuracy device axis is ``[CPU, GPU]``.
     """
-    nt = 50
+    nt = 30
     cost     = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3))
     accuracy = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2, nt))
     
