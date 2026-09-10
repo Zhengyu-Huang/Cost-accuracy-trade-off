@@ -1052,18 +1052,17 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
             optimizer.zero_grad()
             
             x_pred = x.clone()
-            out = []
-
+            loss = 0.0
             for i in range(n_step):
-                y_pred = model(x = x_normalizer(x_pred) if normalization_x else x_pred) 
+                y_pred = model(x=x_normalizer(x_pred) if normalization_x else x_pred)
                 if normalization_y:
                     y_pred = y_normalizer.decode(y_pred)
-                out.append(y_pred)
+                y_target = y[..., i * out_dim:(i + 1) * out_dim]
+                loss = loss + myloss(
+                    y_pred.reshape(batch_size_, -1),
+                    y_target.reshape(batch_size_, -1),
+                ) / n_step
                 x_pred = torch.cat([y_pred, x[..., out_dim:]], dim=-1) if in_dim > out_dim else y_pred
-            
-            out = torch.cat(out, dim=-1)
-            
-            loss = myloss(out.view(batch_size_,-1), y.view(batch_size_,-1))
             loss.backward()
 
             optimizer.step()
@@ -1080,18 +1079,20 @@ def MNO_recurrent_train(x_train, y_train, x_test, y_test, n_step, config, model,
                 batch_size_ = x.shape[0]
                 
                 x_pred = x.clone()
-                out = []
-
                 for i in range(n_step):
                     y_pred = model(x = x_normalizer(x_pred) if normalization_x else x_pred) 
                     if normalization_y:
                         y_pred = y_normalizer.decode(y_pred)
-                    out.append(y_pred)
+                    y_target = y[..., i * out_dim:(i + 1) * out_dim]
+                    test_rel_lp += myloss(
+                        y_pred.reshape(batch_size_, -1),
+                        y_target.reshape(batch_size_, -1),
+                    ).item() / n_step
+                    test_lp += myloss.abs(
+                        y_pred.reshape(batch_size_, -1),
+                        y_target.reshape(batch_size_, -1),
+                    ).item() / n_step
                     x_pred = torch.cat([y_pred, x[..., out_dim:]], dim=-1) if in_dim > out_dim else y_pred
-                out = torch.cat(out, dim=-1)
-                
-                test_rel_lp += myloss(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
-                test_lp += myloss.abs(out.view(batch_size_,-1), y.view(batch_size_,-1)).item()
 
 
 
@@ -1182,7 +1183,25 @@ def setup_model(in_dim, out_dim, fc_dim, k_max, n_layer,
     return model
 
 
-def mno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, grad_layer=True):
+def mno_floating_point_cost(
+    dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne,
+    grad_layer=True, pad_ratio=0.0,
+):
+    """Estimate inference FLOPs on an isotropic structured grid.
+
+    Lifting and projection use the original grid size ``ne``. When padding is
+    enabled, the operator layers use the padded grid size, matching the
+    one-sided integer padding applied in ``MNO1d`` and ``MNO2d``.
+    """
+    if pad_ratio < 0:
+        raise ValueError(f"pad_ratio must be nonnegative, got {pad_ratio}")
+
+    ne_layer = ne
+    if pad_ratio > 0:
+        n = round(ne ** (1.0 / dim))
+        n_padded = n + math.floor(pad_ratio * n)
+        ne_layer = n_padded**dim
+
     c_sigma = 1.0
     K = (2*k_max+1)**dim
     C_lift = 2*ne*in_dim*fc_dim
@@ -1191,10 +1210,10 @@ def mno_floating_point_cost(dim, in_dim, out_dim, k_max, fc_dim, nlayer, ne, gra
     # C_layer = 10*fc_dim*ne*np.log2(ne) + K*(8*fc_dim*fc_dim - 2*fc_dim) + ((2*dim+4)*fc_dim*fc_dim + (2*dim+4+c_sigma)*fc_dim)*ne 
 
     #             FFT                         mode mixing                     affine term    add global/local     activation    residual    
-    C_layer = 10*fc_dim*ne*np.log2(ne) + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*fc_dim*fc_dim*ne + fc_dim*ne + c_sigma*fc_dim*ne + fc_dim*ne
+    C_layer = 10*fc_dim*ne_layer*np.log2(ne_layer) + K*(8*fc_dim*fc_dim - 2*fc_dim) + 2*fc_dim*fc_dim*ne_layer + fc_dim*ne_layer + c_sigma*fc_dim*ne_layer + fc_dim*ne_layer
 
     
     if grad_layer:
-        C_layer += ((2*dim+2)*fc_dim*fc_dim + (2*dim+2)*fc_dim)*ne
+        C_layer += ((2*dim+2)*fc_dim*fc_dim + (2*dim+2)*fc_dim)*ne_layer
 
     return C_lift + C_proj + nlayer*C_layer

@@ -174,7 +174,7 @@ python mno_train.py \
 Checkpoints are written under `models/` using names such as
 
 ```text
-MNO_model_N10000_k16_nlayer4_df64_downsample1.pth
+MNO_model_N10000_k16_nlayer4_df64_downsample1_nrollout2.pth
 ```
 
 Normalizers are not used in this benchmark.
@@ -195,8 +195,7 @@ for N_ROLL_OUT in 1 2 3; do
 done
 ```
 
-Evaluating these models with the same 50-step autoregressive procedure assesses the effect of the training rollout horizon on error accumulation. In the current naming convention, the one- and three-step checkpoints include the suffixes `_nrollout1` and `_nrollout3`, whereas the default two-step checkpoint has no rollout suffix. Make the checkpoint names expected by `accuracy_mno_solver()` consistent before running the comparison.
-
+Evaluating these models with the same 50-step autoregressive procedure assesses the effect of the training rollout horizon on error accumulation. 
 ### 4. Evaluate neural-operator cost and accuracy
 
 The active driver in [`mno_navier_stokes_solver.py`](mno_navier_stokes_solver.py) evaluates all nine paper configurations on the final 100 trajectory files, with ten timed repetitions on both GPU and CPU:
@@ -208,7 +207,7 @@ python mno_navier_stokes_solver.py
 It writes `data/cost_accuracy_mno_solver_data.npz`. To generate the representative prediction used in the flow map, select
 
 ```python
-mno_solver(test_index=1999, downsample=1)
+mno_solver(test_index=1999, downsample=1, n_roll_out=2)
 ```
 
 in the same file and run it separately; this writes `data/mno_solver_data.npz`.

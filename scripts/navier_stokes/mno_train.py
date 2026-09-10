@@ -180,10 +180,7 @@ if __name__ == "__main__":
     downsample = args.downsample
     n_roll_out = args.n_roll_out
 
-    save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
-    # Two-step rollout is the historical default and therefore has no suffix.
-    if n_roll_out != 2:
-        save_model_name += f"_nrollout{n_roll_out}"
+    save_model_name = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}"
 
     print("save_model_name = ", save_model_name )
     

@@ -86,13 +86,16 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
         y_pred[:, 0, ...] = x[... , :out_dim].clone()
         
         # Time model rollout only, excluding device transfer and the final CPU copy.
-        # CUDA kernels are not explicitly synchronized inside this timed region.
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         start_time = time.perf_counter()
         for i in range(nt):
             x[..., :out_dim] = y_pred[:, i ,...]
             y_pred[:, i+1 ,...] =  model( x = (x_normalizer.encode(x) if normalization_x else x) ) 
             if normalization_y:
                 y_pred[:, i+1, ...] = y_normalizer.decode(y_pred[:, i+1, ...])
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         end_time = time.perf_counter()        
         
         y_pred = y_pred.detach().cpu().numpy()
@@ -103,7 +106,7 @@ def mno_solve(model, x_normalizer, y_normalizer, x, nt, device):
 
 
 
-def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
+def mno_solve_visualize(n_layer, df, downsample, k_max, n_train, n_roll_out=2):
     """
     Plot rollout errors and snapshots for the last five reference trajectories.
     """
@@ -115,7 +118,7 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
     dim, in_dim, out_dim = 2, 4, 1
     
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+    checkpoint_path = ("models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}")
           
           
     # x_test is [batch_size , nt+1 , nx , ny , 4]
@@ -179,7 +182,7 @@ def mno_solve_visualize(n_layer, df, downsample, k_max, n_train):
     plt.savefig("figs/MNO_prediction.png")
 
 
-def mno_solver(test_index, downsample):
+def mno_solver(test_index, downsample, n_roll_out=2):
     """
     Roll out one saved trajectory and write its vorticity prediction.
     """
@@ -196,7 +199,7 @@ def mno_solver(test_index, downsample):
     df = 64
     
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
+    checkpoint_path = (f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}")
           
           
     # x_test is [batch_size , nt+1 , nx , ny , 4]
@@ -230,7 +233,7 @@ def mno_solver(test_index, downsample):
 
 
 
-def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial):
+def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial, n_roll_out=2,):
     """
     Benchmark model configurations on one device and spatial resolution.
 
@@ -260,8 +263,10 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
         for n_layer_index, n_layer in enumerate(n_layer_values):
             for df_index, df in enumerate(df_values):
                 
-                checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}"
-                # checkpoint_path = f"models/MNO_model_N4000_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}.pth"
+                checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}"
+                
+                # To evaluate another training-set size, change n_train above;
+                # the checkpoint still ends with _nrollout{n_roll_out}.
     
                 model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0, incremental = True, checkpoint_path=checkpoint_path+".pth")
                 model = model.to(device)
@@ -296,7 +301,10 @@ def cost_accuracy_mno_solver_helper(device, downsample, k_max_values, n_layer_va
 
 
 
-def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df_values, n_train, n_trial = 10):
+def cost_accuracy_mno_solver(
+    downsample_values, k_max_values, n_layer_values, df_values,
+    n_train, n_trial=10, n_roll_out=2,
+):
     """Benchmark all configurations and combine CPU/GPU results.
 
     The saved cost axis is ``[single-step FLOPs, CPU runtime, GPU runtime]`` and
@@ -308,7 +316,11 @@ def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df
     
     for downsample_index, downsample in enumerate(downsample_values):
         for device in [torch.device('cuda') , torch.device('cpu')]:
-            cost_ds, accuracy_ds = cost_accuracy_mno_solver_helper(device, downsample, k_max_values = k_max_values, n_layer_values = n_layer_values, df_values = df_values, n_train = n_train, n_trial = n_trial)
+            cost_ds, accuracy_ds = cost_accuracy_mno_solver_helper(
+                device, downsample, k_max_values=k_max_values,
+                n_layer_values=n_layer_values, df_values=df_values,
+                n_train=n_train, n_trial=n_trial, n_roll_out=n_roll_out,
+            )
             cost[downsample_index, :, :, :, :, 0] = cost_ds[...,0]
             if device.type == 'cpu':
                 cost[downsample_index, :, :, :,:, 1] = cost_ds[...,1]
@@ -322,6 +334,113 @@ def cost_accuracy_mno_solver(downsample_values, k_max_values, n_layer_values, df
     np.savez_compressed('data/cost_accuracy_mno_solver_data.npz', cost=cost, accuracy=accuracy)
 
     return  cost, accuracy 
+
+
+
+
+
+
+def cost_accuracy_mno_solver_onestep_helper(device, downsample, k_max_values, n_layer_values, df_values, n_train, n_trial, n_roll_out=2,):
+    """
+    Benchmark model configurations on one device and spatial resolution.
+
+    The final cost axis is ``[single-step FLOP estimate, mean nt-step runtime]``;
+    accuracy stores relative error at all ``nt+1`` saved states.
+    """
+    # load reference solution
+    
+    nt = 30
+    nx = ny = 256
+    nx, ny = nx//(2**downsample), ny//(2**downsample)
+    ne = nx*ny
+    L = 1.0
+    
+    cost = np.zeros((len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2))
+    accuracy = np.zeros((len(k_max_values), len(n_layer_values), len(df_values), n_trial, nt))
+    
+    dim, in_dim, out_dim = 2, 4, 1
+    
+    x_test, dx1, dx2 = load_test_data(np.arange(2000-n_trial, 2000), nt, downsample)
+
+    x_normalizer, y_normalizer = None, None 
+
+    
+    n_repeat = 10
+    for k_max_index, k_max in enumerate(k_max_values):
+        for n_layer_index, n_layer in enumerate(n_layer_values):
+            for df_index, df in enumerate(df_values):
+                
+                checkpoint_path = f"models/MNO_model_N{n_train}_k{k_max}_nlayer{n_layer}_df{df}_downsample{downsample}_nrollout{n_roll_out}"
+                
+                # To evaluate another training-set size, change n_train above;
+                # the checkpoint still ends with _nrollout{n_roll_out}.
+    
+                model = setup_model(in_dim=in_dim, out_dim=out_dim, fc_dim=df, k_max=k_max, n_layer=n_layer, grad_layer=True, dxs=[dx1,dx2], dx_scale=10.0, pad_ratio=0, incremental = True, checkpoint_path=checkpoint_path+".pth")
+                model = model.to(device)
+
+                
+                for i in range(n_trial):
+                    for j in range(nt):
+                        x = x_test[[i], j, ...]             #[batch_size , nx , ny , in_dim] 
+                        y_ref = x_test[[i], j+1, ..., :out_dim]  #[batch_size , nt+1 , nx , ny , out_dim]
+                        # Warm up model/device initialization before the repeated timing loop.
+                        y_pred, sol_time = mno_solve(model, x_normalizer, y_normalizer, x, 1, device)
+                        sol_time_ave = 0
+                        for _ in range(n_repeat):
+                            y_pred, sol_time = mno_solve(model, x_normalizer, y_normalizer, x, 1, device)
+                            sol_time_ave += sol_time
+                        sol_time_ave /= n_repeat
+                    
+                        rel_error = np.linalg.norm(y_ref[0, ...] - y_pred[0, 1,...])/(np.linalg.norm(y_ref[0, ...]))
+                        accuracy[k_max_index, n_layer_index, df_index, i, j] = rel_error
+                        cost[k_max_index, n_layer_index, df_index, i, 1] += sol_time_ave
+                                                                   
+                    cost[k_max_index, n_layer_index, df_index, i, 0] = mno_floating_point_cost(dim, in_dim, out_dim, k_max, df, n_layer, ne, grad_layer=True)
+                    cost[k_max_index, n_layer_index, df_index, i, 1] /= nt
+                    
+                    print("relative error is : ", rel_error, " flops = ", cost[k_max_index, n_layer_index, df_index, i, 0], " computing_time = ", sol_time_ave)
+
+    
+    return  cost, accuracy
+
+
+
+
+def cost_accuracy_mno_solver_onestep(
+    downsample_values, k_max_values, n_layer_values, df_values,
+    n_train, n_trial=10, n_roll_out=2,
+):
+    """Benchmark all configurations and combine CPU/GPU results.
+
+    The saved cost axis is ``[single-step FLOPs, CPU runtime, GPU runtime]`` and
+    the accuracy device axis is ``[CPU, GPU]``.
+    """
+    nt = 30
+    cost     = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 3))
+    accuracy = np.zeros((len(downsample_values), len(k_max_values), len(n_layer_values), len(df_values), n_trial, 2, nt))
+    
+    for downsample_index, downsample in enumerate(downsample_values):
+        for device in [torch.device('cuda') , torch.device('cpu')]:
+            cost_ds, accuracy_ds = cost_accuracy_mno_solver_onestep_helper(
+                device, downsample, k_max_values=k_max_values,
+                n_layer_values=n_layer_values, df_values=df_values,
+                n_train=n_train, n_trial=n_trial, n_roll_out=n_roll_out,
+            )
+            cost[downsample_index, :, :, :, :, 0] = cost_ds[...,0]
+            if device.type == 'cpu':
+                cost[downsample_index, :, :, :,:, 1] = cost_ds[...,1]
+                accuracy[downsample_index, ..., 0,:] = accuracy_ds
+            else:
+                cost[downsample_index, :, :, :,:, 2] = cost_ds[...,1]
+                accuracy[downsample_index, ..., 1,:] = accuracy_ds
+                
+            
+            
+    np.savez_compressed('data/cost_accuracy_mno_solver_onestep_data.npz', cost=cost, accuracy=accuracy)
+
+    return  cost, accuracy 
+
+
 
 
 
@@ -367,19 +486,30 @@ def accuracy_mno_solver(nrollouts, n_trial):
     return  accuracy 
 
 
+
 if __name__ == "__main__":
 
     #########################################################################
     # generate cost accuracy plot data
     #########################################################################
     
-    cost, accuracy = cost_accuracy_mno_solver(downsample_values = [1,2,3], k_max_values = [16], n_layer_values = [4,5,6], df_values = [64], n_train=10000,  n_trial=100)
+    # cost, accuracy = cost_accuracy_mno_solver(
+    #     downsample_values=[1, 2, 3], k_max_values=[16],
+    #     n_layer_values=[4, 5, 6], df_values=[64], n_train=10000,
+    #     n_trial=100, n_roll_out=2,
+    # )
+
+    cost, accuracy = cost_accuracy_mno_solver_onestep(
+        downsample_values=[1, 2, 3], k_max_values=[16],
+        n_layer_values=[4, 5, 6], df_values=[64], n_train=10000,
+        n_trial=100, n_roll_out=2,
+    )
     
     #########################################################################
     # generate representative plot data
     #########################################################################
     
-    # mno_solver(test_index=1999, downsample=1)
+    # mno_solver(test_index=1999, downsample=1, n_roll_out=2)
     #########################################################################
     # generate data for the rollout plot with different s
     #########################################################################

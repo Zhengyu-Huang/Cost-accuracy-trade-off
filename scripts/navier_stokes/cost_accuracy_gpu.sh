@@ -9,5 +9,5 @@
 #SBATCH --time=100:00:00
 
 module load conda
-python mno_navier_stokes_solver.py > logs/mno_navier_stokes_solver.log
-# julia spectral_navier_stokes_solver.jl > logs/spectral_navier_stokes_solver.log
+# python mno_navier_stokes_solver.py > logs/mno_navier_stokes_solver.log
+julia spectral_navier_stokes_solver.jl > logs/spectral_navier_stokes_solver.log
