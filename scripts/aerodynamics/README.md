@@ -5,7 +5,7 @@ This directory contains the vehicle aerodynamics benchmark used to compare a mul
 ## Representative surface prediction
 
 <p align="center">
-  <img src="../../assets/vehicle_surface_pressure.webp" width="900" alt="Reference, OpenFOAM, and neural-operator surface pressure coefficient on a representative vehicle">
+  <img src="../../assets/vehicle_surface_pressure.jpg" width="900" alt="Reference, OpenFOAM, and neural-operator surface pressure coefficient on a representative vehicle">
 </p>
 
 <p align="center"><em>Surface pressure coefficient <i>C</i><sub>p</sub> for a representative vehicle. From left to right: the geometry-specific large-mesh OpenFOAM reference obtained using 7000 SIMPLE iterations; OpenFOAM predictions on the medium and small meshes; and the M-PCNO prediction on approximately 20,000 surface points. The rows show exterior and underbody views, and all panels use the same color scale.</em></p>

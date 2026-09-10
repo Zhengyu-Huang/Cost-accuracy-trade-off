@@ -13,7 +13,7 @@ neural-operator result archives generated there.
 ## Shared Darcy benchmark
 
 <p align="center">
-  <img src="../../assets/darcy_flow_map.webp" width="900" alt="Darcy permeability, reference pressure, finite-element solution, and modified neural-operator prediction from the main paper">
+  <img src="../../assets/darcy_flow_map.jpg" width="900" alt="Darcy permeability, reference pressure, finite-element solution, and modified neural-operator prediction from the main paper">
 </p>
 
 <p align="center"><em>The Darcy benchmark figure from the main paper. From left to right: the permeability field, the reference pressure, the finite-element solution on a 64 × 64 grid, and the MNO prediction. The standard FNO uses the same physical problem and data; the final panel is the main-study MNO result, not an FNO prediction.</em></p>
@@ -21,7 +21,7 @@ neural-operator result archives generated there.
 ## Cost–accuracy curve
 
 <p align="center">
-  <img src="../../assets/supp_darcy_flow_cost_accuracy.webp" width="900" alt="Darcy-flow comparison among finite elements, the modified neural operator, and the standard FNO">
+  <img src="../../assets/supp_darcy_flow_cost_accuracy.png" width="900" alt="Darcy-flow comparison among finite elements, the modified neural operator, and the standard FNO">
 </p>
 
 <p align="center"><em>Cost–accuracy comparison among finite elements with geometric multigrid, the modified neural operator, and the standard FNO. Left: estimated floating-point work. Right: measured CPU and GPU wall-clock runtime. Markers show test-set means, and error bars denote one standard deviation.</em></p>
@@ -149,4 +149,3 @@ The active `__main__` block reads
 then writes `figs/supp_darcy_flow_cost_accuracy.png`. The figure compares
 finite elements with geometric multigrid, the modified neural operator, and
 the standard FNO in floating-point work and CPU/GPU runtime at matched error.
-

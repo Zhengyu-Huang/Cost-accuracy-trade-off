@@ -50,7 +50,7 @@ multigrid against the modified Fourier neural operator.
 #### Representative solution
 
 <p align="center">
-  <img src="assets/darcy_flow_map.webp" width="920" alt="Darcy permeability, reference pressure, finite-element solution, and modified neural-operator prediction">
+  <img src="assets/darcy_flow_map.jpg" width="920" alt="Darcy permeability, reference pressure, finite-element solution, and modified neural-operator prediction">
 </p>
 
 <p align="center"><em>Representative Darcy test sample. From left to right: the binary permeability field, the reference pressure, the finite-element solution on a 64 × 64 grid, and the neural operator prediction.</em></p>
@@ -85,7 +85,7 @@ many CFL-limited Runge–Kutta steps with one learned update.
 #### Representative rollout
 
 <p align="center">
-  <img src="assets/navier_stokes_flow_map.webp" width="760" alt="Navier-Stokes reference trajectory, Fourier pseudospectral solution, and recurrent neural-operator prediction">
+  <img src="assets/navier_stokes_flow_map.jpg" width="760" alt="Navier-Stokes reference trajectory, Fourier pseudospectral solution, and recurrent neural-operator prediction">
 </p>
 
 <p align="center"><em>Representative vorticity trajectory. Columns show <i>t</i> = 0, 10, 20, and 30; rows show the 256 × 256 reference, the Fourier pseudospectral solution on a 64 × 64 grid, and the recurrent neural operator prediction.</em></p>
@@ -127,7 +127,7 @@ computes a full volumetric steady RANS solution.
 #### Representative surface prediction
 
 <p align="center">
-  <img src="assets/vehicle_surface_pressure.webp" width="920" alt="Reference, OpenFOAM, and neural-operator surface pressure coefficient on a representative vehicle">
+  <img src="assets/vehicle_surface_pressure.jpg" width="920" alt="Reference, OpenFOAM, and neural-operator surface pressure coefficient on a representative vehicle">
 </p>
 
 <p align="center"><em>Surface pressure coefficient <i>C</i><sub>p</sub> for one representative vehicle. From left to right: the geometry-specific large-mesh OpenFOAM reference obtained using 7000 SIMPLE iterations; OpenFOAM predictions on the medium and small meshes; and the neural operator prediction on approximately 20,000 surface points. </em></p>

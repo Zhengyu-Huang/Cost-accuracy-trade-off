@@ -13,7 +13,7 @@ and applies it recurrently at longer prediction horizons. Its principal advantag
 ## Representative rollout
 
 <p align="center">
-  <img src="../../assets/navier_stokes_flow_map.webp" width="760" alt="Representative Navier–Stokes reference trajectory, Fourier pseudospectral solution, and recurrent neural-operator prediction">
+  <img src="../../assets/navier_stokes_flow_map.jpg" width="760" alt="Representative Navier–Stokes reference trajectory, Fourier pseudospectral solution, and recurrent neural-operator prediction">
 </p>
 
 <p align="center"><em>Representative vorticity trajectory. Columns show <i>t</i> = 0, 10, 20, and 30; rows show the 256 × 256 reference, the Fourier pseudospectral solution on a 64 × 64 grid, and the recurrent neural-operator prediction.</em></p>

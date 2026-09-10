@@ -15,7 +15,7 @@ where the binary permeability field $a\in\{1,10\}$ is obtained by thresholding a
 ## Representative solution
 
 <p align="center">
-  <img src="../../assets/darcy_flow_map.webp" width="900" alt="Representative Darcy-flow permeability, reference solution, finite-element solution, and neural-operator prediction">
+  <img src="../../assets/darcy_flow_map.jpg" width="900" alt="Representative Darcy-flow permeability, reference solution, finite-element solution, and neural-operator prediction">
 </p>
 
 <p align="center"><em>Representative test sample. From left to right: the permeability field, the reference pressure, the finite-element solution on a 64 × 64 grid, and the modified neural-operator prediction.</em></p>
