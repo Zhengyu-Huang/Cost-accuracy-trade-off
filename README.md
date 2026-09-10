@@ -58,7 +58,7 @@ multigrid against the modified Fourier neural operator.
 #### Cost–accuracy curve
 
 <p align="center">
-  <img src="assets/darcy_flow_cost_accuracy.webp" width="920" alt="Darcy-flow floating-point work and wall-clock runtime versus relative L2 error">
+  <img src="assets/darcy_flow_cost_accuracy.png" width="920" alt="Darcy-flow floating-point work and wall-clock runtime versus relative L2 error">
 </p>
 
 <p align="center"><em>Main Darcy comparison. Left: estimated floating-point work versus relative <i>L</i><sup>2</sup> error. Right: reported CPU and GPU wall-clock runtime versus relative <i>L</i><sup>2</sup> error. Markers show test means, and error bars denote one standard deviation.</em></p>
@@ -93,24 +93,25 @@ many CFL-limited Runge–Kutta steps with one learned update.
 #### Cost–accuracy curves
 
 <p align="center">
-  <img src="assets/navier_stokes_cost_accuracy_1.webp" width="920" alt="Navier-Stokes cost-accuracy comparison at prediction horizon T equals 1">
+  <img src="assets/navier_stokes_cost_accuracy_1.png" width="920" alt="Navier-Stokes cost-accuracy comparison for teacher-forced one-step prediction">
 </p>
 
-<p align="center"><em>Short-horizon cost–accuracy comparison at <i>T</i> = 1.</em></p>
+<p align="center"><em>Teacher-forced one-step cost–accuracy comparison (<i>T</i> = 1 per transition), averaged over the 30 transitions from <i>t</i> to <i>t</i> + 1 for <i>t</i> = 0,…,29.</em></p>
 
 <p align="center">
-  <img src="assets/navier_stokes_cost_accuracy_30.webp" width="920" alt="Navier-Stokes cost-accuracy comparison at prediction horizon T equals 30">
+  <img src="assets/navier_stokes_cost_accuracy_30.png" width="920" alt="Navier-Stokes cost-accuracy comparison at prediction horizon T equals 30">
 </p>
 
 <p align="center"><em>Long-horizon cost–accuracy comparison at <i>T</i> = 30. In both figures, the left panel reports estimated floating-point work and the right panel reports CPU and GPU wall-clock runtime.</em></p>
 
 #### Results and limitations
 
-**Result.** At $T=1$, the neural operator has a modest floating-point advantage and an
-approximately one-order-of-magnitude reported runtime advantage by replacing
-many RK4 steps with one learned update. At $T=30$, accumulated rollout error
-removes the clear floating-point advantage, although inference remains faster
-because it has less sequential depth.
+**Result.** In the teacher-forced one-step comparison, a possible floating-point
+advantage appears only in the low-accuracy regime. Reported inference is several
+times faster on CPUs and roughly an order of magnitude faster on GPUs because
+one learned update replaces many RK4 steps. At $T=30$, accumulated
+rollout error removes the clear floating-point advantage, although inference
+remains faster because it has less sequential depth.
 
 **Limitation.** Recurrent errors accumulate over long horizons. Longer rollout
 training improves accuracy but costs more and does not eliminate this effect,
@@ -134,7 +135,7 @@ computes a full volumetric steady RANS solution.
 #### Cost–accuracy curve
 
 <p align="center">
-  <img src="assets/aerodynamics_cost_accuracy.webp" width="920" alt="Vehicle-aerodynamics floating-point work and wall-clock runtime versus relative L1 error">
+  <img src="assets/aerodynamics_cost_accuracy.png" width="920" alt="Vehicle-aerodynamics floating-point work and wall-clock runtime versus relative L1 error">
 </p>
 
 <p align="center"><em>Vehicle-aerodynamics comparison. Left: estimated floating-point work versus relative <i>L</i><sup>1</sup> error in <i>C</i><sub>p</sub>. Right: reported OpenFOAM CPU runtime and neural operator CPU/GPU inference runtime. </em></p>

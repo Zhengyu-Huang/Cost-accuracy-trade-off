@@ -1,6 +1,6 @@
 # 2D Incompressible Navier–Stokes Benchmark
 
-This directory contains the research drivers for the time-dependent benchmark in the paper. It compares a Fourier pseudospectral solver with fourth-order Runge–Kutta (RK4) time integration against a recurrent neural operator. The comparison reports relative $L^2$ error, estimated floating-point work, and CPU/GPU wall-clock runtime in the post-training, many-query regime.
+This directory contains the research drivers for the time-dependent benchmark in the paper. It compares a Fourier pseudospectral solver with fourth-order Runge–Kutta (RK4) time integration against a recurrent neural operator, with exponential time-differencing methods included in a sensitivity study. The comparison reports relative $L^2$ error, estimated floating-point work, and CPU/GPU wall-clock runtime in the post-training, many-query regime.
 
 The neural operator learns the unit-time map
 
@@ -21,14 +21,14 @@ and applies it recurrently at longer prediction horizons. Its principal advantag
 ## Cost–accuracy trade-off
 
 <p align="center">
-  <img src="../../assets/navier_stokes_cost_accuracy_1.webp" width="900" alt="Navier–Stokes cost–accuracy comparison at T=1">
+  <img src="../../assets/navier_stokes_cost_accuracy_1.png" width="900" alt="Navier–Stokes cost–accuracy comparison for teacher-forced one-step prediction">
 </p>
 
 <p align="center">
-  <img src="../../assets/navier_stokes_cost_accuracy_30.webp" width="900" alt="Navier–Stokes cost–accuracy comparison at T=30">
+  <img src="../../assets/navier_stokes_cost_accuracy_30.png" width="900" alt="Navier–Stokes cost–accuracy comparison at T=30">
 </p>
 
-<p align="center"><em>Cost–accuracy trade-offs at prediction horizons <i>T</i> = 1 (top) and <i>T</i> = 30 (bottom). Left panels show estimated floating-point work; right panels show CPU and GPU wall-clock runtime. Markers show test-set means, and error bars denote one standard deviation.</em></p>
+<p align="center"><em>Cost–accuracy trade-offs for teacher-forced one-step prediction (top) and recurrent rollout through <i>T</i> = 30 (bottom). In the one-step evaluation, each reference state at <i>t</i> = 0,…,29 is used to predict the state at <i>t</i> + 1, and the results are averaged over the 30 transitions. Left panels show estimated floating-point work; right panels show CPU and GPU wall-clock runtime. Markers show test-set means, and error bars denote one standard deviation.</em></p>
 
 ## Paper configuration
 
@@ -45,11 +45,11 @@ with viscosity $\nu=10^{-4}$. Initial vorticity fields are centered Gaussian ran
 | Component | Configuration |
 |---|---|
 | Reference trajectories | $256\times256$ periodic grid; RK4; $\Delta t=10^{-3}$; snapshots at integer times from 0 through 50 |
-| Classical comparison | Grids $256^2,128^2,64^2,32^2$; $\Delta t=1/(2n)$; CPU and GPU execution |
+| Classical comparison | Grids $256^2,128^2,64^2,32^2$; $\Delta t=1/(2n)$ for RK4 and ETDRK4 and $\Delta t=1/(8n)$ for ETD1; CPU and GPU execution |
 | Neural-operator input | Current vorticity, fixed forcing, and the two coordinate fields (four channels) |
 | Neural-operator sweep | Resolutions $128^2,64^2,32^2$; $k_{\max}=16$; width 64; 4, 5, or 6 layers |
-| Training | 10,000 training pairs from approximately 200 trajectories; two-step recurrent loss; 500 epochs; batch size 8 |
-| Evaluation | Mean relative $L^2$ error at $T=1$ and recurrent rollout to $T=30$; plotted costs are prorated from 50-step measurements in the current script |
+| Training | Approximately 10,000 two-step training windows drawn from 200 trajectories; two-step recurrent loss; 500 epochs; batch size 8 |
+| Evaluation | Teacher-forced one-step error averaged over 30 transitions and recurrent-rollout error averaged over $t=1,\ldots,30$ |
 
 ## Requirements
 
@@ -112,36 +112,37 @@ julia --threads=16 spectral_navier_stokes_solver.jl
 ```
 
 This stage uses CPU threads and writes the trajectory files described above. The site-specific Slurm launcher `bash_cpu.sh` runs the currently selected Python and Julia drivers; inspect their active bottom-of-file calls before submitting it.
-
 ### 2. Evaluate the classical solver
 
-Select the following driver call at the bottom of [`spectral_navier_stokes_solver.jl`](spectral_navier_stokes_solver.jl):
+For the recurrent-rollout data, select the following driver call at the bottom of [`spectral_navier_stokes_solver.jl`](spectral_navier_stokes_solver.jl):
 
 ```julia
-cost_accuracy_traditional_solver(n_downsample = 4, n_trial = 10)
+cost_accuracy_traditional_solver(n_downsample = 4, n_trial = 10, stepper = "RK4")
 ```
 
-Run the Julia script again. It evaluates the four grid resolutions on both CPU and GPU and writes:
+For the teacher-forced one-step data, use
+
+```julia
+cost_accuracy_traditional_solver_onestep(n_downsample = 4, n_trial = 10, stepper = "RK4")
+```
+
+Run the Julia script once for each selected driver. The two calls evaluate the four grid resolutions on both CPU and GPU and write
 
 ```text
 data/cost_accuracy_traditional_solver_data.npz
+data/cost_accuracy_traditional_solver_onestep_data.npz
 ```
 
-When called with `n_downsample=4` and `n_trial=10`,
+The one-step evaluator starts separately from each reference state $\omega(t)$, $t=0,\ldots,29$, predicts $\omega(t+1)$, and records the error and runtime for each of the 30 transitions. 
+
+To reproduce the time-integrator sensitivity study, repeat the corresponding call with `stepper="ETD1"` and `stepper="ETDRK4"`. These runs append `_ETD1` or `_ETDRK4` to the archive name. ETD1 uses $\Delta t=1/(8n)$, whereas RK4 and ETDRK4 use $\Delta t=1/(2n)$. 
+
+For the RK4 call above, when called with `n_downsample=4` and `n_trial=10`,
 `cost_accuracy_traditional_solver()` uses the final ten trajectory files,
 `navier_stokes_01990.npy` through `navier_stokes_01999.npy`. For each
-trajectory, it solves the equation on grids with
-$n\in\{256,128,64,32\}$ points in each spatial direction, using the time step
-$\Delta t=1/(2n)$. The solver records the solution at unit time intervals
-$t=0,1,\ldots,50$ and compares each snapshot with the corresponding restriction
-of the stored $256^2$ reference trajectory generated in step 1. The resulting
-archive contains the estimated floating-point operation counts, measured CPU
-and GPU runtimes, and time-resolved relative $L^2$ errors.
+trajectory, it solves the equation on grids with $n\in\{256,128,64,32\}$ points in each spatial direction, using the time step $\Delta t=1/(2n)$. The solver records the solution at unit time intervals $t=0,1,\ldots,50$ and compares each snapshot with the corresponding restriction of the stored $256^2$ reference trajectory generated in step 1. The resulting archive contains the estimated floating-point operation counts, measured CPU and GPU runtimes, and time-resolved relative $L^2$ errors.
 
-The time-resolved errors in this archive also provide the spectral-method
-curves in the rollout-horizon figure. Specifically, `nrollouts_plot()` reads
-the CPU error histories for the $128^2$, $64^2$, and $32^2$ spectral grids; the
-$256^2$ curve is not displayed in the current figure.
+The time-resolved errors in this archive also provide the spectral-method curves in the rollout-horizon figure. Specifically, `nrollouts_plot()` reads the CPU error histories for the $128^2$, $64^2$, and $32^2$ spectral grids; the $256^2$ curve is not displayed in the current figure.
 
 For the representative flow map used for visualization, instead select
 
@@ -153,7 +154,7 @@ which writes `data/traditional_solver_data.npz` for the $64\times64$ spectral pr
 
 ### 3. Train the neural operators
 
-The paper sweep contains nine models: three resolutions (`downsample=1,2,3`) and three depths (`n_layer=4,5,6`), with 10,000 training pairs, $k_{\max}=16$, width 64, and a two-step rollout loss. On a suitably configured Slurm cluster, submit
+The paper sweep contains nine models: three resolutions (`downsample=1,2,3`) and three depths (`n_layer=4,5,6`), with 10,000 two-step training windows, $k_{\max}=16$, width 64, and a two-step rollout loss. On a suitably configured Slurm cluster, submit
 
 ```bash
 sbatch mno_train_parallel.sh
@@ -195,16 +196,27 @@ for N_ROLL_OUT in 1 2 3; do
 done
 ```
 
-Evaluating these models with the same 50-step autoregressive procedure assesses the effect of the training rollout horizon on error accumulation. 
+Evaluating these models with the same 50-step autoregressive procedure assesses the effect of the training rollout horizon on error accumulation.
+
 ### 4. Evaluate neural-operator cost and accuracy
 
-The active driver in [`mno_navier_stokes_solver.py`](mno_navier_stokes_solver.py) evaluates all nine paper configurations on the final 100 trajectory files, with ten timed repetitions on both GPU and CPU:
+The active driver in [`mno_navier_stokes_solver.py`](mno_navier_stokes_solver.py) evaluates all nine paper configurations in the teacher-forced one-step setting on the final 100 trajectories. Each transition is timed ten times on both GPU and CPU:
 
 ```bash
 python mno_navier_stokes_solver.py
 ```
 
-It writes `data/cost_accuracy_mno_solver_data.npz`. To generate the representative prediction used in the flow map, select
+It writes `data/cost_accuracy_mno_solver_onestep_data.npz`. Each reference
+state at $t=0,\ldots,29$ is supplied independently to predict the state at
+$t+1$; the archive stores the 30 errors and the directly measured mean
+one-step runtime.
+
+To generate the 50-step recurrent-rollout archive used for the $T=30$
+comparison, select the commented `cost_accuracy_mno_solver(...)` call with
+the same nine configurations and `n_trial=100`. Run it separately to write
+`data/cost_accuracy_mno_solver_data.npz`.
+
+To generate the representative prediction used in the flow map, select
 
 ```python
 mno_solver(test_index=1999, downsample=1, n_roll_out=2)
@@ -224,7 +236,7 @@ This archive provides the three neural-operator curves in the supplementary roll
 
 ### 5. Plot the results
 
-[`cost_accuracy_trade_off.py`](cost_accuracy_trade_off.py) contains four plotting functions. Run all commands in this section from `scripts/navier_stokes`, and create the output directory first:
+[`cost_accuracy_trade_off.py`](cost_accuracy_trade_off.py) contains the plotting functions used for the main and supplementary figures. Run all commands in this section from `scripts/navier_stokes`, and create the output directory first:
 
 ```bash
 mkdir -p figs
@@ -245,24 +257,43 @@ The active main block calls this function with `visualize_prediction=True`. Call
 python -c "from cost_accuracy_trade_off import visualize_data; visualize_data(True)"
 ```
 
-#### `cost_accuracy_plot()`
+#### Main cost-accuracy figures
 
-This function reads `data/cost_accuracy_traditional_solver_data.npz` and `data/cost_accuracy_mno_solver_data.npz`. It averages over the evaluation trajectories and plots
-
-- estimated floating-point work versus relative $L^2$ error; and
-- CPU and GPU wall-clock runtime versus relative $L^2$ error.
-
-Markers denote trial means, error bars are computed from sample standard deviations, and dashed lines show log--log fits. The hard-coded variable `nt_error` selects the reported horizon. With `nt_error=1`, the function writes
+`cost_accuracy_onestep_plot()` reads the two `*_onestep_data.npz` archives,
+averages each test trajectory over the 30 teacher-forced transitions, and
+writes
 
 ```text
 figs/navier_stokes_cost_accuracy_1.png
 ```
 
-Set `nt_error=30` and rerun the function to write `figs/navier_stokes_cost_accuracy_30.png`. The function does not generate both horizons in one call. It currently averages error entries from `t=0` through `t=<nt_error>` and prorates the measured 50-step runtimes to the selected horizon. 
+`cost_accuracy_plot(nt_error=30)` reads the two recurrent-rollout archives, averages the errors over predicted states at $t=1,\ldots,30$, and writes
+
+```text
+figs/navier_stokes_cost_accuracy_30.png
+```
+
+Both functions plot
+
+- estimated floating-point work versus relative $L^2$ error; and
+- CPU and GPU wall-clock runtime versus relative $L^2$ error.
 
 ```bash
-python -c "from cost_accuracy_trade_off import cost_accuracy_plot; cost_accuracy_plot()"
+python -c "from cost_accuracy_trade_off import cost_accuracy_onestep_plot, cost_accuracy_plot; cost_accuracy_onestep_plot(); cost_accuracy_plot(nt_error=30)"
 ```
+
+#### Time-integrator sensitivity figures
+
+`cost_accuracy_onestep_plot_etd()` and `cost_accuracy_plot_etd(nt_error=30)`
+add the ETD1 and ETDRK4 results to the corresponding comparisons and write
+
+```text
+figs/supp-navier_stokes_cost_accuracy_1.png
+figs/supp-navier_stokes_cost_accuracy_30.png
+```
+
+They require the RK4, ETD1, and ETDRK4 classical archives described above,
+together with the corresponding one-step or recurrent neural-operator archive.
 
 #### `nrollouts_plot()`
 
@@ -291,23 +322,30 @@ python -c "from cost_accuracy_trade_off import nrollouts_plot; nrollouts_plot()"
 
 #### Run all active plotting functions
 
-The current `__main__` block calls `visualize_data(True)`,
-`cost_accuracy_plot()`, and `nrollouts_plot()`. It therefore requires the raw
-reference trajectory
+The current `__main__` block calls `visualize_data(True)`, the one-step and
+recurrent cost-accuracy functions, their ETD variants, and `nrollouts_plot()`.
+It therefore requires the raw reference trajectory
 
 ```text
 ../../data/navier_stokes/navier_stokes_01999.npy
 ```
 
-and all five evaluation archives:
+and the following evaluation archives:
 
 ```text
 data/traditional_solver_data.npz
 data/mno_solver_data.npz
 data/cost_accuracy_traditional_solver_data.npz
+data/cost_accuracy_traditional_solver_data_ETD1.npz
+data/cost_accuracy_traditional_solver_data_ETDRK4.npz
+data/cost_accuracy_traditional_solver_onestep_data.npz
+data/cost_accuracy_traditional_solver_onestep_data_ETD1.npz
+data/cost_accuracy_traditional_solver_onestep_data_ETDRK4.npz
 data/cost_accuracy_mno_solver_data.npz
+data/cost_accuracy_mno_solver_onestep_data.npz
 data/accuracy_mno_solver_nrollout_data.npz
 ```
+
 
 ```bash
 python cost_accuracy_trade_off.py

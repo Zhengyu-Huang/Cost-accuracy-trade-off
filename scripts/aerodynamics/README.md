@@ -14,7 +14,7 @@ This directory contains the vehicle aerodynamics benchmark used to compare a mul
 ## Cost–accuracy trade-off
 
 <p align="center">
-  <img src="../../assets/aerodynamics_cost_accuracy.webp" width="900" alt="Vehicle-aerodynamics floating-point cost and wall-clock runtime versus relative L1 error">
+  <img src="../../assets/aerodynamics_cost_accuracy.png" width="900" alt="Vehicle-aerodynamics floating-point cost and wall-clock runtime versus relative L1 error">
 </p>
 
 <p align="center"><em>Vehicle-aerodynamics cost–accuracy comparison. Left: estimated floating-point work versus discrete pointwise relative <i>L</i><sup>1</sup> error in <i>C</i><sub>p</sub>. Right: wall-clock runtime for OpenFOAM on CPUs and M-PCNO inference on CPUs and GPUs. Markers show cohort means, and error bars denote one standard deviation. 

@@ -23,7 +23,7 @@ where the binary permeability field $a\in\{1,10\}$ is obtained by thresholding a
 ## Cost–accuracy trade-off
 
 <p align="center">
-  <img src="../../assets/darcy_flow_cost_accuracy.webp" width="900" alt="Darcy-flow floating-point cost and wall-clock runtime versus relative L2 error">
+  <img src="../../assets/darcy_flow_cost_accuracy.png" width="900" alt="Darcy-flow floating-point cost and wall-clock runtime versus relative L2 error">
 </p>
 
 <p align="center"><em>Comparison between finite elements with geometric multigrid and the modified neural operator. Left: estimated floating-point work. Right: measured CPU and GPU wall-clock runtime. Markers show test-set means, and error bars denote one standard deviation.</em></p>
