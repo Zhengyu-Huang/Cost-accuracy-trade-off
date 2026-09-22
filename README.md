@@ -6,7 +6,7 @@
     <a href="#benchmarks">Benchmarks</a> ·
     <a href="#examples-and-results">Examples</a> ·
     <a href="#repository">Repository</a> ·
-    <a href="#citation">Citation</a>
+    <a href="#reference">Reference</a>
   </p>
 </div>
 
