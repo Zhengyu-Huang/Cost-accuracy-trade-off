@@ -203,13 +203,9 @@ The supplied Slurm files are environment-specific templates rather than portable
 
 Raw datasets, trained checkpoints, and intermediate result archives are not stored in this repository. The Darcy and Navier–Stokes datasets can be generated with the supplied classical solvers; the vehicle workflow uses surface data derived from [DrivAerNet++](https://github.com/Mohamedelrefaie/DrivAerNet), which must be obtained separately under the dataset's terms.
 
-## Citation
+## Reference
 
-If you use this repository, please cite the accompanying manuscript:
-
-> Daniel Zhengyu Huang and Andrew M. Stuart. *Cost–Accuracy Trade-offs: Neural Operator vs Classical Numerical Solver*.
-
-Publication metadata will be added when available.
+Daniel Zhengyu Huang and Andrew M. Stuart. *Cost–Accuracy Trade-offs: Neural Operator vs Classical Numerical Solver*. [arXiv preprint](http://arxiv.org/abs/2609.24021) arXiv:2609.24021 (2026). 
 
 ## Contact
 
